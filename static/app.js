@@ -1,14 +1,21 @@
 /* ============================================================
-   LeituraOCR — app.js  (com câmara + toggle de tema)
+   LeituraOCR — app.js (versão corrigida)
+   Melhorias:
+   - Diagnóstico automático ao carregar
+   - Câmara com detecção HTTPS clara
+   - Melhor tratamento de erros
+   - Feedback detalhado ao utilizador
    ============================================================ */
 
-const API = '/api/extract';
+const API         = '/api/extract';
+const API_DIAG    = '/api/diagnose';
 
 // ── State ──────────────────────────────────────────────────
-let currentFile    = null;   // File object (upload tab)
-let currentCamData = null;   // base64 string (camera tab)
+let currentFile    = null;
+let currentCamData = null;
 let activeTab      = 'upload';
 let stream         = null;
+let diagInfo       = null;
 
 // ── Elements ───────────────────────────────────────────────
 const fileInput      = document.getElementById('fileInput');
@@ -40,6 +47,46 @@ const clearCam       = document.getElementById('clearCam');
 const btnCapture     = document.getElementById('btnCapture');
 const btnRetake      = document.getElementById('btnRetake');
 
+// ── Diagnóstico inicial ────────────────────────────────────
+async function runDiagnosis() {
+  try {
+    const res = await fetch(API_DIAG);
+    diagInfo = await res.json();
+    console.log('Diagnóstico servidor:', diagInfo);
+
+    if (!diagInfo.tesseract) {
+      showBanner('warning',
+        '⚠️ Tesseract OCR não instalado no servidor. ' +
+        'Execute: <code>sudo apt install tesseract-ocr tesseract-ocr-por</code>'
+      );
+    } else if (diagInfo.has_portuguese === false) {
+      showBanner('info',
+        'ℹ️ Tesseract instalado mas sem suporte a Português. ' +
+        'Execute: <code>sudo apt install tesseract-ocr-por</code>'
+      );
+    }
+  } catch (e) {
+    console.warn('Não foi possível contactar /api/diagnose:', e);
+  }
+}
+
+function showBanner(type, html) {
+  let banner = document.getElementById('diagBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'diagBanner';
+    banner.style.cssText = `
+      padding: 12px 20px; margin: 12px 0; border-radius: 8px; font-size: 13px;
+      background: ${type === 'warning' ? 'rgba(255,180,0,0.12)' : 'rgba(80,160,255,0.1)'};
+      border: 1px solid ${type === 'warning' ? 'rgba(255,180,0,0.3)' : 'rgba(80,160,255,0.3)'};
+      color: var(--text-primary, #eee);
+    `;
+    const main = document.querySelector('main');
+    if (main) main.prepend(banner);
+  }
+  banner.innerHTML = html;
+}
+
 // ── Theme ──────────────────────────────────────────────────
 const html = document.documentElement;
 let isDark = true;
@@ -55,7 +102,7 @@ function showToast(msg, type = '') {
   toastEl.textContent = msg;
   toastEl.className = 'toast show' + (type ? ' ' + type : '');
   clearTimeout(toastEl._t);
-  toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 2800);
+  toastEl._t = setTimeout(() => toastEl.classList.remove('show'), 3500);
 }
 
 // ── Tabs ───────────────────────────────────────────────────
@@ -70,9 +117,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.getElementById('tab-' + tab).classList.add('active');
     activeTab = tab;
 
-    // Parar câmara ao sair do tab
     if (tab !== 'camera') stopStream();
-
     updateExtractBtn();
   });
 });
@@ -99,28 +144,56 @@ clearUpload.addEventListener('click', () => {
 });
 
 function handleFile(file) {
-  if (!file.type.startsWith('image/')) {
-    showToast('Ficheiro não é uma imagem válida');
+  // Aceitar qualquer tipo de imagem (não apenas os com MIME correcto)
+  const isImage = file.type.startsWith('image/') ||
+    /\.(png|jpe?g|gif|bmp|webp|tiff?|heic|heif)$/i.test(file.name);
+
+  if (!isImage) {
+    showToast('Ficheiro não reconhecido como imagem. Formatos suportados: PNG, JPG, WEBP, BMP, TIFF');
     return;
   }
+
+  if (file.size > 32 * 1024 * 1024) {
+    showToast('Ficheiro demasiado grande (máx. 32 MB)');
+    return;
+  }
+
   currentFile = file;
   const reader = new FileReader();
+  reader.onerror = () => showToast('Erro ao ler o ficheiro');
   reader.onload = e => {
     uploadImg.src = e.target.result;
     dropZone.classList.add('hidden');
     uploadPreview.classList.remove('hidden');
     updateExtractBtn();
+    showToast('Imagem carregada!', 'accent');
   };
   reader.readAsDataURL(file);
 }
 
 // ── Camera ─────────────────────────────────────────────────
+function isSecureContext() {
+  return (
+    location.protocol === 'https:' ||
+    location.hostname === 'localhost' ||
+    location.hostname === '127.0.0.1' ||
+    location.hostname.endsWith('.local')
+  );
+}
+
 btnActivate.addEventListener('click', async () => {
-  // Verificar se é HTTPS (ou localhost)
-  const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  if (!isSecure) {
+  if (!isSecureContext()) {
     camHttpsNote.style.display = 'block';
-    showToast('Câmara requer HTTPS. Ver instruções abaixo.');
+    camHttpsNote.innerHTML = `
+      ⚠️ <strong>Câmara bloqueada.</strong><br>
+      O browser exige HTTPS para aceder à câmara.<br><br>
+      <strong>Solução:</strong><br>
+      1. Inicie o servidor com <code>python app.py</code> (gera certificado SSL automático)<br>
+      2. Aceda via <code>https://&lt;SEU-IP&gt;:5000</code><br>
+      3. Aceite o aviso de segurança do browser<br><br>
+      <em>Alternativa: use o <strong>separador Upload</strong> para enviar fotos tiradas noutro dispositivo.</em>
+    `;
+    showToast('Câmara requer HTTPS. Ver instruções abaixo.', 'error');
     return;
   }
 
@@ -131,34 +204,55 @@ btnActivate.addEventListener('click', async () => {
 
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      video: {
+        facingMode: { ideal: 'environment' }, // câmara traseira em mobile
+        width:  { ideal: 1920 },
+        height: { ideal: 1080 },
+      }
     });
+
     camVideo.srcObject = stream;
     camPlaceholder.classList.add('hidden');
     camVideo.classList.remove('hidden');
     btnCapture.classList.remove('hidden');
     showToast('Câmara activada!', 'accent');
+
   } catch (err) {
-    console.error(err);
-    if (err.name === 'NotAllowedError') {
-      showToast('Permissão à câmara negada pelo utilizador');
-    } else if (err.name === 'NotFoundError') {
-      showToast('Nenhuma câmara detectada neste dispositivo');
-    } else {
-      showToast('Erro ao aceder à câmara: ' + err.message);
+    let msg = 'Não foi possível aceder à câmara.';
+    if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+      msg = 'Permissão negada. Autorize o acesso à câmara nas definições do browser.';
+    } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+      msg = 'Nenhuma câmara encontrada neste dispositivo.';
+    } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+      msg = 'Câmara em uso por outra aplicação.';
+    } else if (err.name === 'OverconstrainedError') {
+      // Tentar sem constraints de resolução
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        camVideo.srcObject = stream;
+        camPlaceholder.classList.add('hidden');
+        camVideo.classList.remove('hidden');
+        btnCapture.classList.remove('hidden');
+        return;
+      } catch (e2) {
+        msg = 'Câmara não suporta as configurações pedidas.';
+      }
     }
+    showToast(msg);
+    console.error('Camera error:', err);
   }
 });
 
 btnCapture.addEventListener('click', () => {
-  const w = camVideo.videoWidth  || 640;
-  const h = camVideo.videoHeight || 480;
+  const w = camVideo.videoWidth  || 1280;
+  const h = camVideo.videoHeight || 720;
   camCanvas.width  = w;
   camCanvas.height = h;
   camCanvas.getContext('2d').drawImage(camVideo, 0, 0, w, h);
 
-  const dataUrl = camCanvas.toDataURL('image/jpeg', 0.92);
-  currentCamData = dataUrl; // mantemos o data URL completo para preview + envio
+  // Usar qualidade mais alta para melhor OCR
+  const dataUrl = camCanvas.toDataURL('image/jpeg', 0.95);
+  currentCamData = dataUrl;
 
   camPreviewImg.src = dataUrl;
   camVideo.classList.add('hidden');
@@ -227,7 +321,11 @@ extractBtn.addEventListener('click', async () => {
       // Enviar como multipart/form-data
       const form = new FormData();
       form.append('file', currentFile);
-      res = await fetch(API, { method: 'POST', body: form });
+      res = await fetch(API, {
+        method: 'POST',
+        body: form,
+        // NÃO definir Content-Type — o browser faz isso automaticamente com o boundary
+      });
 
     } else if (activeTab === 'camera' && currentCamData) {
       // Enviar como JSON com base64
@@ -242,10 +340,26 @@ extractBtn.addEventListener('click', async () => {
       return;
     }
 
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch (parseErr) {
+      showToast('Erro: resposta inválida do servidor');
+      setLoading(false);
+      return;
+    }
 
     if (!res.ok || data.error) {
-      showToast('Erro: ' + (data.error || 'Falha no servidor'));
+      const errMsg = data.error || `Erro HTTP ${res.status}`;
+      showToast('Erro: ' + errMsg);
+      console.error('Detalhes do erro:', data);
+
+      // Mostrar dica de instalação se tesseract não estiver disponível
+      if (data.install_hint) {
+        showBanner('warning',
+          `⚠️ Tesseract não instalado. Execute no terminal: <code>${data.install_hint}</code>`
+        );
+      }
       setLoading(false);
       return;
     }
@@ -255,15 +369,21 @@ extractBtn.addEventListener('click', async () => {
     emptyState.style.display = text ? 'none' : '';
 
     if (text) {
-      stats.textContent = `${data.word_count} palavras · ${data.char_count} caracteres`;
+      const langLabel = data.lang_used ? ` · ${data.lang_used}` : '';
+      stats.textContent = `${data.word_count} palavras · ${data.char_count} caracteres${langLabel}`;
       showToast('Texto extraído com sucesso!', 'accent');
     } else {
       stats.textContent = '';
-      showToast('Nenhum texto detectado. Tente uma imagem mais nítida.');
+      const msg = data.message || 'Nenhum texto detectado. Tente uma imagem mais nítida.';
+      showToast(msg);
     }
 
   } catch (err) {
-    showToast('Erro de ligação ao servidor');
+    if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      showToast('Erro: não foi possível contactar o servidor');
+    } else {
+      showToast('Erro: ' + err.message);
+    }
     console.error(err);
   }
 
@@ -284,6 +404,11 @@ copyBtn.addEventListener('click', () => {
     copyBtn.classList.add('success');
     showToast('Texto copiado!', 'accent');
     setTimeout(() => copyBtn.classList.remove('success'), 2000);
+  }).catch(() => {
+    // Fallback para browsers sem clipboard API
+    outputText.select();
+    document.execCommand('copy');
+    showToast('Texto copiado!', 'accent');
   });
 });
 
@@ -299,3 +424,6 @@ downloadBtn.addEventListener('click', () => {
   URL.revokeObjectURL(a.href);
   showToast('Ficheiro descarregado!', 'accent');
 });
+
+// ── Inicialização ──────────────────────────────────────────
+runDiagnosis();
