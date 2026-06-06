@@ -1,10 +1,11 @@
 /* ============================================================
-   LeituraOCR — app.js (versão corrigida)
+   LeituraOCR — app.js
    Melhorias:
+   - Flash/tocha da câmara (activar/desactivar)
+   - Modo caligrafia para texto manuscrito
    - Diagnóstico automático ao carregar
    - Câmara com detecção HTTPS clara
    - Melhor tratamento de erros
-   - Feedback detalhado ao utilizador
    ============================================================ */
 
 const API         = '/api/extract';
@@ -16,6 +17,8 @@ let currentCamData = null;
 let activeTab      = 'upload';
 let stream         = null;
 let diagInfo       = null;
+let flashOn        = false;      // estado actual do flash
+let handwritingMode = false;     // modo caligrafia
 
 // ── Elements ───────────────────────────────────────────────
 const fileInput      = document.getElementById('fileInput');
@@ -46,6 +49,8 @@ const camPreviewImg  = document.getElementById('camPreviewImg');
 const clearCam       = document.getElementById('clearCam');
 const btnCapture     = document.getElementById('btnCapture');
 const btnRetake      = document.getElementById('btnRetake');
+const btnFlash       = document.getElementById('btnFlash');
+const handwritingToggle = document.getElementById('handwritingToggle');
 
 // ── Diagnóstico inicial ────────────────────────────────────
 async function runDiagnosis() {
@@ -144,7 +149,6 @@ clearUpload.addEventListener('click', () => {
 });
 
 function handleFile(file) {
-  // Aceitar qualquer tipo de imagem (não apenas os com MIME correcto)
   const isImage = file.type.startsWith('image/') ||
     /\.(png|jpe?g|gif|bmp|webp|tiff?|heic|heif)$/i.test(file.name);
 
@@ -169,6 +173,65 @@ function handleFile(file) {
     showToast('Imagem carregada!', 'accent');
   };
   reader.readAsDataURL(file);
+}
+
+// ── Flash / Tocha ──────────────────────────────────────────
+async function setFlash(on) {
+  if (!stream) return;
+  const track = stream.getVideoTracks()[0];
+  if (!track) return;
+
+  // Verificar se o dispositivo suporta flash
+  const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+  if (!capabilities.torch) {
+    showToast('Este dispositivo não suporta flash/tocha');
+    return;
+  }
+
+  try {
+    await track.applyConstraints({ advanced: [{ torch: on }] });
+    flashOn = on;
+    updateFlashBtn();
+  } catch (err) {
+    showToast('Erro ao controlar o flash: ' + err.message);
+    console.error('Flash error:', err);
+  }
+}
+
+function updateFlashBtn() {
+  if (!btnFlash) return;
+  if (flashOn) {
+    btnFlash.classList.add('active');
+    btnFlash.title = 'Desactivar flash';
+    btnFlash.querySelector('.flash-label').textContent = 'Flash ON';
+  } else {
+    btnFlash.classList.remove('active');
+    btnFlash.title = 'Activar flash';
+    btnFlash.querySelector('.flash-label').textContent = 'Flash';
+  }
+}
+
+function showFlashBtn(visible) {
+  if (!btnFlash) return;
+  btnFlash.classList.toggle('hidden', !visible);
+}
+
+if (btnFlash) {
+  btnFlash.addEventListener('click', () => {
+    setFlash(!flashOn);
+  });
+}
+
+// ── Handwriting mode ───────────────────────────────────────
+if (handwritingToggle) {
+  handwritingToggle.addEventListener('change', () => {
+    handwritingMode = handwritingToggle.checked;
+    if (handwritingMode) {
+      showToast('Modo caligrafia activado — optimizado para texto manuscrito', 'accent');
+    } else {
+      showToast('Modo normal activado');
+    }
+  });
 }
 
 // ── Camera ─────────────────────────────────────────────────
@@ -215,6 +278,16 @@ btnActivate.addEventListener('click', async () => {
     camPlaceholder.classList.add('hidden');
     camVideo.classList.remove('hidden');
     btnCapture.classList.remove('hidden');
+
+    // Verificar se o flash está disponível neste dispositivo
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      showFlashBtn(!!caps.torch);
+    }
+
+    flashOn = false;
+    updateFlashBtn();
     showToast('Câmara activada!', 'accent');
 
   } catch (err) {
@@ -226,13 +299,18 @@ btnActivate.addEventListener('click', async () => {
     } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
       msg = 'Câmara em uso por outra aplicação.';
     } else if (err.name === 'OverconstrainedError') {
-      // Tentar sem constraints de resolução
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
         camVideo.srcObject = stream;
         camPlaceholder.classList.add('hidden');
         camVideo.classList.remove('hidden');
         btnCapture.classList.remove('hidden');
+
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          const caps = track.getCapabilities ? track.getCapabilities() : {};
+          showFlashBtn(!!caps.torch);
+        }
         return;
       } catch (e2) {
         msg = 'Câmara não suporta as configurações pedidas.';
@@ -250,7 +328,6 @@ btnCapture.addEventListener('click', () => {
   camCanvas.height = h;
   camCanvas.getContext('2d').drawImage(camVideo, 0, 0, w, h);
 
-  // Usar qualidade mais alta para melhor OCR
   const dataUrl = camCanvas.toDataURL('image/jpeg', 0.95);
   currentCamData = dataUrl;
 
@@ -259,7 +336,10 @@ btnCapture.addEventListener('click', () => {
   camPreview.classList.remove('hidden');
   btnCapture.classList.add('hidden');
   btnRetake.classList.remove('hidden');
+  showFlashBtn(false); // esconder flash após captura
 
+  // Desligar flash após capturar
+  setFlash(false);
   stopStream();
   updateExtractBtn();
   showToast('Foto capturada!', 'accent');
@@ -278,6 +358,14 @@ btnRetake.addEventListener('click', async () => {
     camVideo.srcObject = stream;
     camVideo.classList.remove('hidden');
     btnCapture.classList.remove('hidden');
+
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      showFlashBtn(!!caps.torch);
+    }
+    flashOn = false;
+    updateFlashBtn();
   } catch (err) {
     camPlaceholder.classList.remove('hidden');
     showToast('Erro ao reactivar câmara: ' + err.message);
@@ -289,15 +377,24 @@ clearCam.addEventListener('click', () => {
   camPreview.classList.add('hidden');
   btnRetake.classList.add('hidden');
   camPlaceholder.classList.remove('hidden');
+  showFlashBtn(false);
+  setFlash(false);
   stopStream();
   updateExtractBtn();
 });
 
 function stopStream() {
   if (stream) {
+    // Garantir que o flash é desligado antes de parar
+    const track = stream.getVideoTracks()[0];
+    if (track && flashOn) {
+      track.applyConstraints({ advanced: [{ torch: false }] }).catch(() => {});
+    }
     stream.getTracks().forEach(t => t.stop());
     stream = null;
   }
+  flashOn = false;
+  updateFlashBtn();
   camVideo.classList.add('hidden');
   camVideo.srcObject = null;
 }
@@ -318,21 +415,23 @@ extractBtn.addEventListener('click', async () => {
     let res;
 
     if (activeTab === 'upload' && currentFile) {
-      // Enviar como multipart/form-data
       const form = new FormData();
       form.append('file', currentFile);
+      // Passar flag de caligrafia se activo
+      if (handwritingMode) form.append('handwriting', '1');
       res = await fetch(API, {
         method: 'POST',
         body: form,
-        // NÃO definir Content-Type — o browser faz isso automaticamente com o boundary
       });
 
     } else if (activeTab === 'camera' && currentCamData) {
-      // Enviar como JSON com base64
       res = await fetch(API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: currentCamData }),
+        body: JSON.stringify({
+          image: currentCamData,
+          handwriting: handwritingMode,
+        }),
       });
     } else {
       showToast('Nenhuma imagem disponível');
@@ -354,7 +453,6 @@ extractBtn.addEventListener('click', async () => {
       showToast('Erro: ' + errMsg);
       console.error('Detalhes do erro:', data);
 
-      // Mostrar dica de instalação se tesseract não estiver disponível
       if (data.install_hint) {
         showBanner('warning',
           `⚠️ Tesseract não instalado. Execute no terminal: <code>${data.install_hint}</code>`
@@ -370,7 +468,8 @@ extractBtn.addEventListener('click', async () => {
 
     if (text) {
       const langLabel = data.lang_used ? ` · ${data.lang_used}` : '';
-      stats.textContent = `${data.word_count} palavras · ${data.char_count} caracteres${langLabel}`;
+      const modeLabel = data.handwriting_mode ? ' · ✍️ caligrafia' : '';
+      stats.textContent = `${data.word_count} palavras · ${data.char_count} caracteres${langLabel}${modeLabel}`;
       showToast('Texto extraído com sucesso!', 'accent');
     } else {
       stats.textContent = '';
@@ -405,7 +504,6 @@ copyBtn.addEventListener('click', () => {
     showToast('Texto copiado!', 'accent');
     setTimeout(() => copyBtn.classList.remove('success'), 2000);
   }).catch(() => {
-    // Fallback para browsers sem clipboard API
     outputText.select();
     document.execCommand('copy');
     showToast('Texto copiado!', 'accent');
