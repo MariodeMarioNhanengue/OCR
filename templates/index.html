@@ -22,11 +22,9 @@
       <nav class="nav-tag">Reconhecimento de Texto · v1.0</nav>
       <button class="theme-toggle" id="themeToggle" title="Alternar tema">
         <span class="theme-icon dark-icon">
-          <!-- Moon -->
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </span>
         <span class="theme-icon light-icon">
-          <!-- Sun -->
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
         </span>
         <span class="theme-label" id="themeLabel">Claro</span>
@@ -37,16 +35,25 @@
   <main>
     <section class="hero">
       <h1>Transforme imagens<br><em>em texto</em></h1>
-      <p class="hero-sub">Faça upload de uma foto — o motor OCR extrai o texto em segundos.</p>
+      <p class="hero-sub">Faça upload ou use a câmara — o motor OCR extrai o texto em segundos.</p>
     </section>
 
     <!-- Input Panel -->
     <section class="panel input-panel">
-      <div class="panel-header-label">
-        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        Upload de Imagem
+
+      <!-- Tabs -->
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="upload" id="tabUpload">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload de Foto
+        </button>
+        <button class="tab-btn" data-tab="camera" id="tabCamera">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Câmara
+        </button>
       </div>
 
+      <!-- Upload Tab -->
       <div class="tab-content active" id="tab-upload">
         <div class="drop-zone" id="dropZone">
           <input type="file" id="fileInput" accept="image/*" hidden />
@@ -60,13 +67,54 @@
             <p class="drop-formats">PNG · JPG · BMP · TIFF · WEBP</p>
           </div>
         </div>
-
         <div class="preview-wrap hidden" id="uploadPreview">
           <img id="uploadPreviewImg" src="" alt="Preview" />
           <button class="btn-clear" id="clearUpload" title="Remover">✕</button>
         </div>
       </div>
 
+      <!-- Camera Tab -->
+      <div class="tab-content" id="tab-camera">
+        <div class="camera-box" id="cameraBox">
+
+          <!-- Placeholder (antes de activar) -->
+          <div class="cam-placeholder" id="camPlaceholder">
+            <svg width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <p class="cam-placeholder-title">Acesso à Câmara</p>
+            <p class="cam-placeholder-sub">Clique no botão para activar a câmara do seu dispositivo. O browser pedirá permissão.</p>
+            <button class="btn-cam-activate" id="btnActivate">Activar Câmara</button>
+            <p class="cam-https-note" id="camHttpsNote" style="display:none">
+              ⚠️ Este site está em HTTP. A câmara só funciona em HTTPS.<br>
+              Inicie o servidor com HTTPS (ver README).
+            </p>
+          </div>
+
+          <!-- Live video -->
+          <video id="camVideo" class="hidden" autoplay playsinline muted></video>
+
+          <!-- Canvas (oculto, usado para captura) -->
+          <canvas id="camCanvas" class="hidden"></canvas>
+
+          <!-- Preview após captura -->
+          <div class="preview-wrap hidden" id="camPreview">
+            <img id="camPreviewImg" src="" alt="Captura" />
+            <button class="btn-clear" id="clearCam" title="Nova foto">✕</button>
+          </div>
+        </div>
+
+        <!-- Controlos da câmara -->
+        <div class="cam-controls" id="camControls">
+          <button class="btn-cam-ctrl hidden" id="btnCapture">
+            <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            Capturar Foto
+          </button>
+          <button class="btn-cam-ctrl secondary hidden" id="btnRetake">
+            ↺ Nova Foto
+          </button>
+        </div>
+      </div>
+
+      <!-- Extract Button (fora das tabs, sempre visível) -->
       <button class="btn-extract" id="extractBtn" disabled>
         <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <span id="extractLabel">Extrair Texto</span>
