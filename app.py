@@ -2,108 +2,179 @@ import os
 import base64
 import io
 import sys
+import glob
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance
 
 app = Flask(__name__)
 CORS(app)
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # 64MB max
 
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff', 'tif'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff', 'tif', 'pdf'}
 
 # ── Tesseract setup ─────────────────────────────────────────
 TESSERACT_AVAILABLE = False
+TESSERACT_PATH = None
+
+def find_tesseract_windows():
+    """Procura o executável do Tesseract em locais comuns no Windows."""
+    candidates = [
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
+        r'C:\Tesseract-OCR\tesseract.exe',
+        r'C:\tesseract\tesseract.exe',
+    ]
+    # Procurar em AppData de qualquer utilizador
+    candidates += glob.glob(r'C:\Users\*\AppData\Local\Tesseract-OCR\tesseract.exe')
+    candidates += glob.glob(r'C:\Users\*\AppData\Local\Programs\Tesseract-OCR\tesseract.exe')
+
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
 try:
     import pytesseract
 
     if os.name == 'nt':
-        import glob
-        candidates = [
-            r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-            r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-        ]
-        candidates += glob.glob(r'C:\Users\*\AppData\Local\Tesseract-OCR\tesseract.exe')
-        candidates += glob.glob(r'C:\tesseract\tesseract.exe')
-
-        for path in candidates:
-            if os.path.isfile(path):
-                pytesseract.pytesseract.tesseract_cmd = path
-                print(f"✅ Tesseract encontrado em: {path}")
-                break
+        # Primeiro tenta encontrar automaticamente
+        found = find_tesseract_windows()
+        if found:
+            pytesseract.pytesseract.tesseract_cmd = found
+            TESSERACT_PATH = found
+            print(f"✅ Tesseract encontrado: {found}")
         else:
-            print("⚠️  Tesseract não encontrado nos caminhos padrão do Windows.")
-            print("   Verifique onde instalou e edite a linha abaixo no app.py:")
-            print("   pytesseract.pytesseract.tesseract_cmd = r'C:\\...\\tesseract.exe'")
+            # Tenta pelo PATH do sistema (caso o utilizador tenha adicionado)
+            import shutil
+            if shutil.which('tesseract'):
+                print("✅ Tesseract encontrado no PATH do sistema")
+            else:
+                print("⚠️  Tesseract não encontrado automaticamente.")
+                print("   Instale em: https://github.com/UB-Mannheim/tesseract/wiki")
+                print("   Ou defina a variável TESSERACT_CMD no ambiente:")
+                print("   set TESSERACT_CMD=C:\\Program Files\\Tesseract-OCR\\tesseract.exe")
+
+        # Suporte a TESSERACT_CMD via variável de ambiente (override manual)
+        env_cmd = os.environ.get('TESSERACT_CMD')
+        if env_cmd and os.path.isfile(env_cmd):
+            pytesseract.pytesseract.tesseract_cmd = env_cmd
+            TESSERACT_PATH = env_cmd
+            print(f"✅ Tesseract via TESSERACT_CMD: {env_cmd}")
 
     pytesseract.get_tesseract_version()
     TESSERACT_AVAILABLE = True
-    print("✅ Tesseract OCR disponível")
+    print("✅ Tesseract OCR pronto")
+
 except Exception as e:
-    print(f"⚠️  Tesseract não encontrado: {e}")
+    print(f"⚠️  Tesseract não disponível: {e}")
     if os.name == 'nt':
-        print("   → Windows: instale em https://github.com/UB-Mannheim/tesseract/wiki")
+        print("   → Instale em: https://github.com/UB-Mannheim/tesseract/wiki")
+        print("   → Marque 'Add to PATH' durante a instalação")
     else:
-        print("   → Linux: sudo apt install tesseract-ocr tesseract-ocr-por")
+        print("   → sudo apt install tesseract-ocr tesseract-ocr-por")
+
+# ── pdf2image / Poppler setup ────────────────────────────────
+PDF_AVAILABLE = False
+POPPLER_PATH = None
+
+def find_poppler_windows():
+    """Procura binários do Poppler em locais comuns no Windows."""
+    candidates = [
+        r'C:\poppler\Library\bin',
+        r'C:\poppler\bin',
+        r'C:\Program Files\poppler\Library\bin',
+        r'C:\Program Files\poppler\bin',
+        r'C:\Program Files (x86)\poppler\bin',
+        r'C:\tools\poppler\Library\bin',
+    ]
+    candidates += glob.glob(r'C:\Users\*\poppler*\Library\bin')
+    candidates += glob.glob(r'C:\poppler*\Library\bin')
+    candidates += glob.glob(r'C:\poppler*\bin')
+    # Procurar em PATH
+    import shutil
+    if shutil.which('pdftoppm'):
+        return None  # já está no PATH, pdf2image encontra sozinho
+
+    for path in candidates:
+        if os.path.isdir(path) and os.path.isfile(os.path.join(path, 'pdftoppm.exe')):
+            return path
+    return None
+
+try:
+    from pdf2image import convert_from_bytes
+
+    poppler_path = None
+    if os.name == 'nt':
+        poppler_path = find_poppler_windows()
+        if poppler_path:
+            POPPLER_PATH = poppler_path
+            print(f"✅ Poppler encontrado: {poppler_path}")
+        else:
+            import shutil
+            if shutil.which('pdftoppm'):
+                print("✅ Poppler encontrado no PATH do sistema")
+            else:
+                print("⚠️  Poppler não encontrado. PDFs não serão suportados.")
+                print("   Descarregue em: https://github.com/oschwartz10612/poppler-windows/releases")
+                print("   Extraia e coloque em C:\\poppler\\")
+                raise RuntimeError("Poppler não encontrado")
+
+    # Teste rápido
+    convert_from_bytes(b'%PDF', poppler_path=poppler_path if os.name == 'nt' else None)
+except RuntimeError as e:
+    print(f"⚠️  PDF desactivado: {e}")
+except Exception:
+    # O teste falhou por PDF inválido mas a biblioteca está presente
+    from pdf2image import convert_from_bytes
+    PDF_AVAILABLE = True
+    print("✅ pdf2image disponível")
+
+if not PDF_AVAILABLE:
+    try:
+        from pdf2image import convert_from_bytes
+        PDF_AVAILABLE = True
+        print("✅ pdf2image disponível (suporte a PDF activo)")
+    except ImportError:
+        print("⚠️  pdf2image não instalado: pip install pdf2image")
+
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def preprocess_image(img, handwriting=False):
-    """Melhorar imagem para maior precisão OCR."""
     if img.mode not in ('RGB', 'L'):
         img = img.convert('RGB')
-
     w, h = img.size
-
     if w == 0 or h == 0:
-        raise ValueError("Imagem com dimensões inválidas (largura ou altura = 0)")
+        raise ValueError("Imagem com dimensões inválidas")
 
     if handwriting:
-        # Para caligrafia: resolução mais alta e pré-processamento suave
         if w < 1200 or h < 1200:
             scale = max(1200 / w, 1200 / h)
-            new_w = min(int(w * scale), 6000)
-            new_h = min(int(h * scale), 6000)
-            img = img.resize((new_w, new_h), Image.LANCZOS)
-        # Contraste moderado — evitar degradar letras manuscritas
+            img = img.resize((min(int(w * scale), 6000), min(int(h * scale), 6000)), Image.LANCZOS)
         img = ImageEnhance.Contrast(img).enhance(1.3)
         img = ImageEnhance.Sharpness(img).enhance(1.5)
     else:
-        # Para texto impresso: processamento padrão
         if w < 800 or h < 800:
             scale = max(800 / w, 800 / h)
-            new_w = min(int(w * scale), 4000)
-            new_h = min(int(h * scale), 4000)
-            img = img.resize((new_w, new_h), Image.LANCZOS)
+            img = img.resize((min(int(w * scale), 4000), min(int(h * scale), 4000)), Image.LANCZOS)
         img = ImageEnhance.Sharpness(img).enhance(2.0)
         img = ImageEnhance.Contrast(img).enhance(1.5)
-
     return img
 
 def extract_text_tesseract(img, lang='por+eng', handwriting=False):
-    """Extrair texto via Tesseract com múltiplas configs."""
     if not TESSERACT_AVAILABLE:
-        raise RuntimeError("Tesseract não está instalado neste sistema.")
-
+        raise RuntimeError("Tesseract não está instalado.")
     preprocessed = preprocess_image(img, handwriting=handwriting)
 
-    if handwriting:
-        # Para caligrafia: usar OEM 1 (LSTM puro) que é melhor para manuscrito,
-        # e PSM 6 (bloco de texto uniforme) ou PSM 4 (coluna de texto variável).
-        # Também tentar PSM 11 (texto disperso) para notas soltas.
-        configs = [
-            f'--oem 1 --psm 6 -l {lang}',
-            f'--oem 1 --psm 4 -l {lang}',
-            f'--oem 1 --psm 11 -l {lang}',
-            f'--oem 3 --psm 6 -l {lang}',  # fallback com OEM 3
-        ]
-    else:
-        configs = [
-            f'--oem 3 --psm 3 -l {lang}',
-            f'--oem 3 --psm 6 -l {lang}',
-            f'--oem 3 --psm 11 -l {lang}',
-        ]
+    configs = (
+        [f'--oem 1 --psm 6 -l {lang}', f'--oem 1 --psm 4 -l {lang}',
+         f'--oem 1 --psm 11 -l {lang}', f'--oem 3 --psm 6 -l {lang}']
+        if handwriting else
+        [f'--oem 3 --psm 3 -l {lang}', f'--oem 3 --psm 6 -l {lang}',
+         f'--oem 3 --psm 11 -l {lang}']
+    )
 
     best_text = ""
     for cfg in configs:
@@ -113,20 +184,9 @@ def extract_text_tesseract(img, lang='por+eng', handwriting=False):
                 best_text = text
         except Exception as e:
             print(f"Config {cfg} falhou: {e}")
-            continue
-
     return best_text.strip()
 
-def image_to_base64_str(img, fmt='JPEG'):
-    """Converter imagem PIL para base64 string."""
-    buf = io.BytesIO()
-    if fmt == 'JPEG' and img.mode in ('RGBA', 'P', 'LA'):
-        img = img.convert('RGB')
-    img.save(buf, format=fmt, quality=92)
-    return base64.b64encode(buf.getvalue()).decode('utf-8')
-
 def open_image_safe(data: bytes) -> Image.Image:
-    """Abrir imagem a partir de bytes com tratamento de erros."""
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
@@ -134,7 +194,24 @@ def open_image_safe(data: bytes) -> Image.Image:
     except Exception as e:
         raise ValueError(f"Não foi possível abrir a imagem: {e}")
 
-# ── Endpoints ───────────────────────────────────────────────
+def ocr_image(img, handwriting=False):
+    """Executar OCR numa imagem PIL. Devolve (text, lang_used)."""
+    try:
+        return extract_text_tesseract(img, lang='por+eng', handwriting=handwriting), 'por+eng'
+    except Exception:
+        try:
+            return extract_text_tesseract(img, lang='eng', handwriting=handwriting), 'eng'
+        except Exception as e2:
+            raise RuntimeError(f"Falha OCR: {e2}")
+
+def pdf_to_images(file_bytes):
+    """Converter PDF em lista de imagens PIL."""
+    kwargs = {'dpi': 200}
+    if os.name == 'nt' and POPPLER_PATH:
+        kwargs['poppler_path'] = POPPLER_PATH
+    return convert_from_bytes(file_bytes, **kwargs)
+
+# ── Endpoints ────────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -142,14 +219,17 @@ def index():
 
 @app.route('/api/diagnose', methods=['GET'])
 def diagnose():
-    """Endpoint de diagnóstico para verificar o estado do servidor."""
     info = {
         'tesseract': TESSERACT_AVAILABLE,
+        'tesseract_path': TESSERACT_PATH,
+        'pdf_support': PDF_AVAILABLE,
+        'poppler_path': POPPLER_PATH,
         'python_version': sys.version,
+        'platform': os.name,
         'is_https': request.is_secure,
         'host': request.host,
         'protocol': request.scheme,
-        'handwriting_support': TESSERACT_AVAILABLE,  # disponível se tesseract estiver instalado
+        'handwriting_support': TESSERACT_AVAILABLE,
     }
     if TESSERACT_AVAILABLE:
         try:
@@ -163,151 +243,173 @@ def diagnose():
 
 @app.route('/api/extract', methods=['POST'])
 def extract():
-    """Endpoint principal de extracção OCR."""
     try:
         img = None
         source = None
-        handwriting = False  # modo caligrafia
+        handwriting = False
 
-        # ── 1. JSON com imagem base64 (câmara ou base64 directo) ──
         if request.is_json:
             data = request.get_json(force=True, silent=True) or {}
-            if 'image' in data:
-                img_data = data['image']
-                if not img_data:
-                    return jsonify({'error': 'Campo "image" está vazio'}), 400
-                if ',' in img_data:
-                    img_data = img_data.split(',', 1)[1]
-                try:
-                    img_bytes = base64.b64decode(img_data)
-                    img = open_image_safe(img_bytes)
-                    source = 'base64'
-                except Exception as e:
-                    return jsonify({'error': f'Base64 inválido: {e}'}), 400
-                # Flag de caligrafia via JSON
-                handwriting = bool(data.get('handwriting', False))
-            else:
-                return jsonify({'error': 'JSON recebido mas sem campo "image"'}), 400
+            if 'image' not in data:
+                return jsonify({'error': 'JSON sem campo "image"'}), 400
+            img_data = data['image']
+            if not img_data:
+                return jsonify({'error': 'Campo "image" vazio'}), 400
+            if ',' in img_data:
+                img_data = img_data.split(',', 1)[1]
+            try:
+                img = open_image_safe(base64.b64decode(img_data))
+                source = 'base64'
+            except Exception as e:
+                return jsonify({'error': f'Base64 inválido: {e}'}), 400
+            handwriting = bool(data.get('handwriting', False))
 
-        # ── 2. Multipart file upload ──
         elif 'file' in request.files:
             file = request.files['file']
-            if file.filename == '':
+            if not file.filename:
                 return jsonify({'error': 'Nenhum ficheiro selecionado'}), 400
             if not allowed_file(file.filename):
-                return jsonify({
-                    'error': f'Formato não suportado: {file.filename}. Use: {", ".join(ALLOWED_EXTENSIONS)}'
-                }), 400
+                return jsonify({'error': f'Formato não suportado. Use: {", ".join(ALLOWED_EXTENSIONS)}'}), 400
+
+            ext = file.filename.rsplit('.', 1)[1].lower()
+            file_bytes = file.read()
+            if not file_bytes:
+                return jsonify({'error': 'Ficheiro vazio'}), 400
+
+            handwriting = request.form.get('handwriting', '0') in ('1', 'true', 'True')
+
+            if ext == 'pdf':
+                if not PDF_AVAILABLE:
+                    return jsonify({
+                        'error': 'Suporte a PDF não disponível.',
+                        'install_hint': 'pip install pdf2image  +  instale Poppler (ver README)'
+                    }), 503
+                return _process_pdf(file_bytes, handwriting)
+
             try:
-                file_bytes = file.read()
-                if len(file_bytes) == 0:
-                    return jsonify({'error': 'Ficheiro vazio'}), 400
                 img = open_image_safe(file_bytes)
                 source = 'file'
             except Exception as e:
                 return jsonify({'error': f'Erro a ler ficheiro: {e}'}), 400
-            # Flag de caligrafia via form field
-            handwriting = request.form.get('handwriting', '0') in ('1', 'true', 'True')
 
-        # ── 3. Raw bytes (content-type image/*) ──
         elif request.content_type and request.content_type.startswith('image/'):
+            img_bytes = request.get_data()
+            if not img_bytes:
+                return jsonify({'error': 'Corpo vazio'}), 400
             try:
-                img_bytes = request.get_data()
-                if not img_bytes:
-                    return jsonify({'error': 'Corpo da requisição vazio'}), 400
                 img = open_image_safe(img_bytes)
                 source = 'raw'
             except Exception as e:
-                return jsonify({'error': f'Erro a ler imagem raw: {e}'}), 400
-
+                return jsonify({'error': str(e)}), 400
         else:
-            return jsonify({
-                'error': 'Nenhuma imagem recebida. Use: JSON com campo "image" (base64), '
-                         'multipart/form-data com campo "file", ou envie bytes raw com Content-Type: image/*'
-            }), 400
+            return jsonify({'error': 'Nenhuma imagem recebida.'}), 400
 
-        # ── OCR ──
         if not TESSERACT_AVAILABLE:
             return jsonify({
                 'success': False,
-                'error': 'Tesseract OCR não está instalado neste servidor.',
-                'install_hint': 'sudo apt install tesseract-ocr tesseract-ocr-por',
-                'image_info': {
-                    'size': img.size,
-                    'mode': img.mode,
-                    'source': source,
-                }
+                'error': 'Tesseract OCR não está instalado.',
+                'install_hint': 'https://github.com/UB-Mannheim/tesseract/wiki' if os.name == 'nt' else 'sudo apt install tesseract-ocr tesseract-ocr-por',
             }), 503
 
-        # Tentar primeiro com português+inglês, depois só inglês
-        text = ""
-        lang_used = ""
         try:
-            text = extract_text_tesseract(img, lang='por+eng', handwriting=handwriting)
-            lang_used = 'por+eng'
-        except Exception as e1:
-            try:
-                text = extract_text_tesseract(img, lang='eng', handwriting=handwriting)
-                lang_used = 'eng'
-            except Exception as e2:
-                return jsonify({'error': f'Falha OCR: {e2}'}), 500
+            text, lang_used = ocr_image(img, handwriting=handwriting)
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
 
         if not text:
             return jsonify({
-                'success': True,
-                'text': '',
-                'message': 'Nenhum texto detetado. Tente com uma imagem mais nítida ou com mais contraste.',
-                'lang_used': lang_used,
-                'handwriting_mode': handwriting,
-                'image_info': {'size': img.size, 'mode': img.mode},
+                'success': True, 'text': '',
+                'message': 'Nenhum texto detetado. Tente com uma imagem mais nítida.',
+                'lang_used': lang_used, 'handwriting_mode': handwriting,
             })
 
         return jsonify({
-            'success': True,
-            'text': text,
-            'char_count': len(text),
-            'word_count': len(text.split()),
-            'lang_used': lang_used,
-            'handwriting_mode': handwriting,
+            'success': True, 'text': text,
+            'char_count': len(text), 'word_count': len(text.split()),
+            'lang_used': lang_used, 'handwriting_mode': handwriting,
         })
 
     except Exception as e:
         import traceback
-        return jsonify({
-            'error': f'Erro interno: {str(e)}',
-            'detail': traceback.format_exc()
-        }), 500
+        return jsonify({'error': f'Erro interno: {e}', 'detail': traceback.format_exc()}), 500
+
+
+@app.route('/api/extract-pdf', methods=['POST'])
+def extract_pdf():
+    if not PDF_AVAILABLE:
+        hint = 'pip install pdf2image  +  Poppler: https://github.com/oschwartz10612/poppler-windows/releases' if os.name == 'nt' \
+               else 'pip install pdf2image  +  apt install poppler-utils'
+        return jsonify({'error': 'Suporte a PDF não disponível.', 'install_hint': hint}), 503
+    if not TESSERACT_AVAILABLE:
+        return jsonify({'error': 'Tesseract não instalado.'}), 503
+    if 'file' not in request.files:
+        return jsonify({'error': 'Nenhum ficheiro PDF enviado'}), 400
+
+    file = request.files['file']
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext != 'pdf':
+        return jsonify({'error': 'Este endpoint aceita apenas ficheiros PDF'}), 400
+
+    file_bytes = file.read()
+    if not file_bytes:
+        return jsonify({'error': 'Ficheiro PDF vazio'}), 400
+
+    handwriting = request.form.get('handwriting', '0') in ('1', 'true', 'True')
+    return _process_pdf(file_bytes, handwriting)
+
+
+def _process_pdf(file_bytes, handwriting=False):
+    try:
+        pages = pdf_to_images(file_bytes)
+    except Exception as e:
+        hint = ''
+        if os.name == 'nt' and not POPPLER_PATH:
+            hint = ' Instale Poppler: https://github.com/oschwartz10612/poppler-windows/releases e extraia em C:\\poppler\\'
+        return jsonify({'error': f'Não foi possível converter o PDF: {e}.{hint}'}), 400
+
+    if not pages:
+        return jsonify({'error': 'PDF sem páginas'}), 400
+
+    all_texts, errors, lang_used = [], [], ''
+    for i, page_img in enumerate(pages):
+        try:
+            text, lang = ocr_image(page_img, handwriting=handwriting)
+            lang_used = lang
+            all_texts.append({'page': i + 1, 'text': text,
+                               'char_count': len(text), 'word_count': len(text.split())})
+        except Exception as e:
+            errors.append({'page': i + 1, 'error': str(e)})
+
+    full_text = '\n\n'.join(
+        f"--- Página {p['page']} ---\n{p['text']}" for p in all_texts if p['text'].strip()
+    )
+
+    return jsonify({
+        'success': True, 'text': full_text, 'pages': all_texts,
+        'total_pages': len(pages), 'char_count': len(full_text),
+        'word_count': len(full_text.split()), 'lang_used': lang_used,
+        'handwriting_mode': handwriting, 'errors': errors,
+    })
 
 
 if __name__ == '__main__':
-    ssl_cert = 'cert.pem'
-    ssl_key  = 'key.pem'
+    ssl_cert, ssl_key = 'cert.pem', 'key.pem'
 
     if not (os.path.exists(ssl_cert) and os.path.exists(ssl_key)):
-        print("🔐 Certificado SSL não encontrado. A gerar...")
+        print("🔐 A gerar certificado SSL...")
         try:
             import generate_cert
             generate_cert.generate()
         except Exception as e:
-            print(f"⚠️  Não foi possível gerar certificado: {e}")
-            ssl_cert = None
-            ssl_key  = None
+            print(f"⚠️  Certificado não gerado: {e}")
+            ssl_cert = ssl_key = None
 
     ssl_context = (ssl_cert, ssl_key) if ssl_cert else None
 
     if ssl_context:
-        print("✅ A iniciar em HTTPS — câmara funcionará normalmente.")
-        print("   Acesso local:     https://localhost:5000")
-        print("   Acesso em rede:   https://<SEU-IP>:5000")
-        print("   ⚠️  Aceite o aviso de segurança do browser (certificado auto-assinado).")
+        print("✅ A iniciar em HTTPS")
+        print("   https://localhost:5000")
     else:
-        print("⚠️  A iniciar em HTTP.")
-        print("   Câmara bloqueada pelo browser (requer HTTPS).")
-        print("   Upload de ficheiros funciona normalmente.")
+        print("⚠️  A iniciar em HTTP (câmara bloqueada pelo browser)")
 
-    app.run(
-        debug=True,
-        host='0.0.0.0',
-        port=5000,
-        ssl_context=ssl_context,
-    )
+    app.run(debug=True, host='0.0.0.0', port=5000, ssl_context=ssl_context)

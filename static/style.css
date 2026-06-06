@@ -512,3 +512,58 @@ footer strong { color: var(--accent); font-weight: 500; }
 [data-theme="light"] .toggle-switch {
   background: rgba(0,0,0,0.15);
 }
+
+/* ── PDF Selected ─────────────────────────────────────────── */
+.pdf-selected {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface2);
+}
+.pdf-info {
+  display: flex; align-items: center; gap: 14px;
+  color: var(--text-muted);
+}
+.pdf-info svg { flex-shrink: 0; }
+.pdf-name {
+  font-weight: 600; font-size: 14px; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px;
+}
+.pdf-size { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); margin-top: 2px; }
+
+.btn-clear-inline {
+  background: none; border: 1px solid var(--border);
+  color: var(--text-muted); border-radius: 50%;
+  width: 30px; height: 30px; cursor: pointer; font-size: 13px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .2s, border-color .2s, color .2s;
+  flex-shrink: 0;
+}
+.btn-clear-inline:hover { background: rgba(192,57,43,.15); border-color: #c0392b; color: #c0392b; }
+
+/* ── PDF Pages result ─────────────────────────────────────── */
+.pdf-pages-result {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.pdf-pages-label {
+  padding: 10px 16px;
+  font-size: 11px; font-family: var(--font-mono);
+  color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface2);
+}
+.pdf-page-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.pdf-page-item:last-child { border-bottom: none; }
+.pdf-page-item.empty { opacity: .5; }
+.pdf-page-num { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); min-width: 54px; }
+.pdf-page-words { color: var(--text); }
+.pdf-page-empty { font-size: 11px; color: var(--text-muted); font-style: italic; margin-left: auto; }

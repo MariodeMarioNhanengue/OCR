@@ -1,55 +1,69 @@
 /* ============================================================
-   LeituraOCR — app.js
-   Melhorias:
-   - Flash/tocha da câmara (activar/desactivar)
-   - Modo caligrafia para texto manuscrito
-   - Diagnóstico automático ao carregar
-   - Câmara com detecção HTTPS clara
-   - Melhor tratamento de erros
+   LeituraOCR — app.js  v1.2
+   Funcionalidades:
+   - Upload de imagem (drag & drop)
+   - Câmara com flash/tocha
+   - PDF multipágina
+   - Modo caligrafia
+   - Diagnóstico automático
+   - Tema claro/escuro
+   - Copiar / Descarregar / Limpar resultado
    ============================================================ */
 
-const API         = '/api/extract';
-const API_DIAG    = '/api/diagnose';
+const API        = '/api/extract';
+const API_PDF    = '/api/extract-pdf';
+const API_DIAG   = '/api/diagnose';
 
 // ── State ──────────────────────────────────────────────────
-let currentFile    = null;
-let currentCamData = null;
+let currentFile    = null;   // ficheiro de imagem
+let currentPdfFile = null;   // ficheiro PDF
+let currentCamData = null;   // base64 da câmara
 let activeTab      = 'upload';
 let stream         = null;
 let diagInfo       = null;
-let flashOn        = false;      // estado actual do flash
-let handwritingMode = false;     // modo caligrafia
+let flashOn        = false;
+let handwritingMode = false;
 
 // ── Elements ───────────────────────────────────────────────
-const fileInput      = document.getElementById('fileInput');
-const dropZone       = document.getElementById('dropZone');
-const uploadPreview  = document.getElementById('uploadPreview');
-const uploadImg      = document.getElementById('uploadPreviewImg');
-const clearUpload    = document.getElementById('clearUpload');
-const extractBtn     = document.getElementById('extractBtn');
-const extractLabel   = document.getElementById('extractLabel');
-const extractSpinner = document.getElementById('extractSpinner');
-const outputText     = document.getElementById('outputText');
-const emptyState     = document.getElementById('emptyState');
-const stats          = document.getElementById('stats');
-const copyBtn        = document.getElementById('copyBtn');
-const downloadBtn    = document.getElementById('downloadBtn');
-const toastEl        = document.getElementById('toast');
-const themeToggle    = document.getElementById('themeToggle');
-const themeLabel     = document.getElementById('themeLabel');
+const fileInput       = document.getElementById('fileInput');
+const dropZone        = document.getElementById('dropZone');
+const uploadPreview   = document.getElementById('uploadPreview');
+const uploadImg       = document.getElementById('uploadPreviewImg');
+const clearUpload     = document.getElementById('clearUpload');
+
+const pdfInput        = document.getElementById('pdfInput');
+const dropZonePdf     = document.getElementById('dropZonePdf');
+const pdfSelected     = document.getElementById('pdfSelected');
+const pdfName         = document.getElementById('pdfName');
+const pdfSize         = document.getElementById('pdfSize');
+const clearPdf        = document.getElementById('clearPdf');
+const pdfPagesResult  = document.getElementById('pdfPagesResult');
+
+const extractBtn      = document.getElementById('extractBtn');
+const extractLabel    = document.getElementById('extractLabel');
+const extractSpinner  = document.getElementById('extractSpinner');
+const outputText      = document.getElementById('outputText');
+const emptyState      = document.getElementById('emptyState');
+const stats           = document.getElementById('stats');
+const copyBtn         = document.getElementById('copyBtn');
+const downloadBtn     = document.getElementById('downloadBtn');
+const clearOutputBtn  = document.getElementById('clearOutputBtn');
+const toastEl         = document.getElementById('toast');
+const themeToggle     = document.getElementById('themeToggle');
+const themeLabel      = document.getElementById('themeLabel');
 
 // Camera
-const camPlaceholder = document.getElementById('camPlaceholder');
-const camHttpsNote   = document.getElementById('camHttpsNote');
-const btnActivate    = document.getElementById('btnActivate');
-const camVideo       = document.getElementById('camVideo');
-const camCanvas      = document.getElementById('camCanvas');
-const camPreview     = document.getElementById('camPreview');
-const camPreviewImg  = document.getElementById('camPreviewImg');
-const clearCam       = document.getElementById('clearCam');
-const btnCapture     = document.getElementById('btnCapture');
-const btnRetake      = document.getElementById('btnRetake');
-const btnFlash       = document.getElementById('btnFlash');
+const camPlaceholder  = document.getElementById('camPlaceholder');
+const camHttpsNote    = document.getElementById('camHttpsNote');
+const btnActivate     = document.getElementById('btnActivate');
+const camVideo        = document.getElementById('camVideo');
+const camCanvas       = document.getElementById('camCanvas');
+const camPreview      = document.getElementById('camPreview');
+const camPreviewImg   = document.getElementById('camPreviewImg');
+const clearCam        = document.getElementById('clearCam');
+const btnCapture      = document.getElementById('btnCapture');
+const btnRetake       = document.getElementById('btnRetake');
+const btnFlash        = document.getElementById('btnFlash');
 const handwritingToggle = document.getElementById('handwritingToggle');
 
 // ── Diagnóstico inicial ────────────────────────────────────
@@ -70,6 +84,15 @@ async function runDiagnosis() {
         'Execute: <code>sudo apt install tesseract-ocr-por</code>'
       );
     }
+
+    // Desabilitar tab PDF se não houver suporte
+    if (diagInfo.pdf_support === false) {
+      const pdfTab = document.querySelector('[data-tab="pdf"]');
+      if (pdfTab) {
+        pdfTab.title = 'PDF não disponível: instale pdf2image + poppler-utils';
+        pdfTab.style.opacity = '0.45';
+      }
+    }
   } catch (e) {
     console.warn('Não foi possível contactar /api/diagnose:', e);
   }
@@ -80,16 +103,25 @@ function showBanner(type, html) {
   if (!banner) {
     banner = document.createElement('div');
     banner.id = 'diagBanner';
-    banner.style.cssText = `
-      padding: 12px 20px; margin: 12px 0; border-radius: 8px; font-size: 13px;
-      background: ${type === 'warning' ? 'rgba(255,180,0,0.12)' : 'rgba(80,160,255,0.1)'};
-      border: 1px solid ${type === 'warning' ? 'rgba(255,180,0,0.3)' : 'rgba(80,160,255,0.3)'};
-      color: var(--text-primary, #eee);
-    `;
+    const closeBtn = document.createElement('button');
+    closeBtn.innerHTML = '✕';
+    closeBtn.style.cssText = 'float:right;background:none;border:none;cursor:pointer;color:inherit;font-size:14px;padding:0 0 0 12px;';
+    closeBtn.onclick = () => banner.remove();
+    banner.appendChild(closeBtn);
+
     const main = document.querySelector('main');
     if (main) main.prepend(banner);
   }
+  banner.style.cssText = `
+    padding: 12px 20px; margin: 12px 0; border-radius: 8px; font-size: 13px; position: relative;
+    background: ${type === 'warning' ? 'rgba(255,180,0,0.12)' : 'rgba(80,160,255,0.1)'};
+    border: 1px solid ${type === 'warning' ? 'rgba(255,180,0,0.3)' : 'rgba(80,160,255,0.3)'};
+    color: var(--text);
+  `;
+  // Manter o botão fechar
+  const existing = banner.querySelector('button');
   banner.innerHTML = html;
+  if (existing) banner.appendChild(existing);
 }
 
 // ── Theme ──────────────────────────────────────────────────
@@ -153,7 +185,7 @@ function handleFile(file) {
     /\.(png|jpe?g|gif|bmp|webp|tiff?|heic|heif)$/i.test(file.name);
 
   if (!isImage) {
-    showToast('Ficheiro não reconhecido como imagem. Formatos suportados: PNG, JPG, WEBP, BMP, TIFF');
+    showToast('Ficheiro não reconhecido como imagem. Use PNG, JPG, WEBP, BMP ou TIFF');
     return;
   }
 
@@ -175,26 +207,73 @@ function handleFile(file) {
   reader.readAsDataURL(file);
 }
 
+// ── PDF Upload ─────────────────────────────────────────────
+dropZonePdf.addEventListener('click', () => pdfInput.click());
+dropZonePdf.addEventListener('dragover', e => { e.preventDefault(); dropZonePdf.classList.add('dragover'); });
+dropZonePdf.addEventListener('dragleave', () => dropZonePdf.classList.remove('dragover'));
+dropZonePdf.addEventListener('drop', e => {
+  e.preventDefault(); dropZonePdf.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  if (file) handlePdf(file);
+});
+pdfInput.addEventListener('change', () => {
+  if (pdfInput.files[0]) handlePdf(pdfInput.files[0]);
+});
+
+clearPdf.addEventListener('click', () => {
+  currentPdfFile = null;
+  pdfSelected.classList.add('hidden');
+  dropZonePdf.classList.remove('hidden');
+  pdfPagesResult.classList.add('hidden');
+  pdfPagesResult.innerHTML = '';
+  pdfInput.value = '';
+  updateExtractBtn();
+});
+
+function handlePdf(file) {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  if (!isPdf) {
+    showToast('Este campo aceita apenas ficheiros PDF');
+    return;
+  }
+  if (file.size > 64 * 1024 * 1024) {
+    showToast('PDF demasiado grande (máx. 64 MB)');
+    return;
+  }
+
+  currentPdfFile = file;
+  pdfName.textContent = file.name;
+  pdfSize.textContent = formatBytes(file.size);
+  dropZonePdf.classList.add('hidden');
+  pdfSelected.classList.remove('hidden');
+  pdfPagesResult.classList.add('hidden');
+  pdfPagesResult.innerHTML = '';
+  updateExtractBtn();
+  showToast('PDF carregado!', 'accent');
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 // ── Flash / Tocha ──────────────────────────────────────────
 async function setFlash(on) {
   if (!stream) return;
   const track = stream.getVideoTracks()[0];
   if (!track) return;
-
-  // Verificar se o dispositivo suporta flash
   const capabilities = track.getCapabilities ? track.getCapabilities() : {};
   if (!capabilities.torch) {
     showToast('Este dispositivo não suporta flash/tocha');
     return;
   }
-
   try {
     await track.applyConstraints({ advanced: [{ torch: on }] });
     flashOn = on;
     updateFlashBtn();
   } catch (err) {
     showToast('Erro ao controlar o flash: ' + err.message);
-    console.error('Flash error:', err);
   }
 }
 
@@ -216,23 +295,16 @@ function showFlashBtn(visible) {
   btnFlash.classList.toggle('hidden', !visible);
 }
 
-if (btnFlash) {
-  btnFlash.addEventListener('click', () => {
-    setFlash(!flashOn);
-  });
-}
+btnFlash && btnFlash.addEventListener('click', () => setFlash(!flashOn));
 
 // ── Handwriting mode ───────────────────────────────────────
-if (handwritingToggle) {
-  handwritingToggle.addEventListener('change', () => {
-    handwritingMode = handwritingToggle.checked;
-    if (handwritingMode) {
-      showToast('Modo caligrafia activado — optimizado para texto manuscrito', 'accent');
-    } else {
-      showToast('Modo normal activado');
-    }
-  });
-}
+handwritingToggle && handwritingToggle.addEventListener('change', () => {
+  handwritingMode = handwritingToggle.checked;
+  showToast(handwritingMode
+    ? 'Modo caligrafia activado — optimizado para texto manuscrito'
+    : 'Modo normal activado'
+  , handwritingMode ? 'accent' : '');
+});
 
 // ── Camera ─────────────────────────────────────────────────
 function isSecureContext() {
@@ -254,9 +326,9 @@ btnActivate.addEventListener('click', async () => {
       1. Inicie o servidor com <code>python app.py</code> (gera certificado SSL automático)<br>
       2. Aceda via <code>https://&lt;SEU-IP&gt;:5000</code><br>
       3. Aceite o aviso de segurança do browser<br><br>
-      <em>Alternativa: use o <strong>separador Upload</strong> para enviar fotos tiradas noutro dispositivo.</em>
+      <em>Alternativa: use o separador <strong>Upload</strong> para enviar fotos tiradas noutro dispositivo.</em>
     `;
-    showToast('Câmara requer HTTPS. Ver instruções abaixo.', 'error');
+    showToast('Câmara requer HTTPS. Ver instruções abaixo.');
     return;
   }
 
@@ -268,7 +340,7 @@ btnActivate.addEventListener('click', async () => {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: { ideal: 'environment' }, // câmara traseira em mobile
+        facingMode: { ideal: 'environment' },
         width:  { ideal: 1920 },
         height: { ideal: 1080 },
       }
@@ -279,7 +351,6 @@ btnActivate.addEventListener('click', async () => {
     camVideo.classList.remove('hidden');
     btnCapture.classList.remove('hidden');
 
-    // Verificar se o flash está disponível neste dispositivo
     const track = stream.getVideoTracks()[0];
     if (track) {
       const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -305,7 +376,6 @@ btnActivate.addEventListener('click', async () => {
         camPlaceholder.classList.add('hidden');
         camVideo.classList.remove('hidden');
         btnCapture.classList.remove('hidden');
-
         const track = stream.getVideoTracks()[0];
         if (track) {
           const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -336,9 +406,7 @@ btnCapture.addEventListener('click', () => {
   camPreview.classList.remove('hidden');
   btnCapture.classList.add('hidden');
   btnRetake.classList.remove('hidden');
-  showFlashBtn(false); // esconder flash após captura
-
-  // Desligar flash após capturar
+  showFlashBtn(false);
   setFlash(false);
   stopStream();
   updateExtractBtn();
@@ -358,7 +426,6 @@ btnRetake.addEventListener('click', async () => {
     camVideo.srcObject = stream;
     camVideo.classList.remove('hidden');
     btnCapture.classList.remove('hidden');
-
     const track = stream.getVideoTracks()[0];
     if (track) {
       const caps = track.getCapabilities ? track.getCapabilities() : {};
@@ -385,7 +452,6 @@ clearCam.addEventListener('click', () => {
 
 function stopStream() {
   if (stream) {
-    // Garantir que o flash é desligado antes de parar
     const track = stream.getVideoTracks()[0];
     if (track && flashOn) {
       track.applyConstraints({ advanced: [{ torch: false }] }).catch(() => {});
@@ -403,36 +469,41 @@ function stopStream() {
 function updateExtractBtn() {
   const hasUpload = activeTab === 'upload' && currentFile !== null;
   const hasCam    = activeTab === 'camera' && currentCamData !== null;
-  extractBtn.disabled = !(hasUpload || hasCam);
+  const hasPdf    = activeTab === 'pdf' && currentPdfFile !== null;
+  extractBtn.disabled = !(hasUpload || hasCam || hasPdf);
 }
 
 // ── Extract ────────────────────────────────────────────────
 extractBtn.addEventListener('click', async () => {
   if (extractBtn.disabled) return;
   setLoading(true);
+  clearOutput();
 
   try {
     let res;
 
+    // Imagem via upload
     if (activeTab === 'upload' && currentFile) {
       const form = new FormData();
       form.append('file', currentFile);
-      // Passar flag de caligrafia se activo
       if (handwritingMode) form.append('handwriting', '1');
-      res = await fetch(API, {
-        method: 'POST',
-        body: form,
-      });
+      res = await fetch(API, { method: 'POST', body: form });
 
+    // Imagem via câmara
     } else if (activeTab === 'camera' && currentCamData) {
       res = await fetch(API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: currentCamData,
-          handwriting: handwritingMode,
-        }),
+        body: JSON.stringify({ image: currentCamData, handwriting: handwritingMode }),
       });
+
+    // PDF
+    } else if (activeTab === 'pdf' && currentPdfFile) {
+      const form = new FormData();
+      form.append('file', currentPdfFile);
+      if (handwritingMode) form.append('handwriting', '1');
+      res = await fetch(API_PDF, { method: 'POST', body: form });
+
     } else {
       showToast('Nenhuma imagem disponível');
       setLoading(false);
@@ -442,7 +513,7 @@ extractBtn.addEventListener('click', async () => {
     let data;
     try {
       data = await res.json();
-    } catch (parseErr) {
+    } catch {
       showToast('Erro: resposta inválida do servidor');
       setLoading(false);
       return;
@@ -451,11 +522,9 @@ extractBtn.addEventListener('click', async () => {
     if (!res.ok || data.error) {
       const errMsg = data.error || `Erro HTTP ${res.status}`;
       showToast('Erro: ' + errMsg);
-      console.error('Detalhes do erro:', data);
-
       if (data.install_hint) {
         showBanner('warning',
-          `⚠️ Tesseract não instalado. Execute no terminal: <code>${data.install_hint}</code>`
+          `⚠️ Dependência em falta. Execute no terminal: <code>${data.install_hint}</code>`
         );
       }
       setLoading(false);
@@ -464,14 +533,24 @@ extractBtn.addEventListener('click', async () => {
 
     const text = data.text || '';
     outputText.value = text;
-    emptyState.style.display = text ? 'none' : '';
 
     if (text) {
+      emptyState.style.display = 'none';
+      outputText.style.display = '';
       const langLabel = data.lang_used ? ` · ${data.lang_used}` : '';
       const modeLabel = data.handwriting_mode ? ' · ✍️ caligrafia' : '';
-      stats.textContent = `${data.word_count} palavras · ${data.char_count} caracteres${langLabel}${modeLabel}`;
+      const pagesLabel = data.total_pages ? ` · ${data.total_pages} páginas` : '';
+      stats.textContent = `${data.word_count} palavras · ${data.char_count} chars${langLabel}${modeLabel}${pagesLabel}`;
+      clearOutputBtn.style.display = '';
       showToast('Texto extraído com sucesso!', 'accent');
+
+      // Para PDF: mostrar resumo por páginas
+      if (activeTab === 'pdf' && data.pages && data.pages.length > 1) {
+        renderPdfPages(data.pages);
+      }
     } else {
+      emptyState.style.display = '';
+      outputText.style.display = 'none';
       stats.textContent = '';
       const msg = data.message || 'Nenhum texto detectado. Tente uma imagem mais nítida.';
       showToast(msg);
@@ -489,11 +568,39 @@ extractBtn.addEventListener('click', async () => {
   setLoading(false);
 });
 
+function renderPdfPages(pages) {
+  if (!pdfPagesResult) return;
+  pdfPagesResult.innerHTML = '<p class="pdf-pages-label">Resumo por página:</p>' +
+    pages.map(p => `
+      <div class="pdf-page-item ${p.text.trim() ? '' : 'empty'}">
+        <span class="pdf-page-num">Pág. ${p.page}</span>
+        <span class="pdf-page-words">${p.word_count} palavras</span>
+        ${!p.text.trim() ? '<span class="pdf-page-empty">sem texto</span>' : ''}
+      </div>
+    `).join('');
+  pdfPagesResult.classList.remove('hidden');
+}
+
 function setLoading(on) {
   extractBtn.disabled = on;
   extractLabel.textContent = on ? 'A extrair...' : 'Extrair Texto';
   extractSpinner.classList.toggle('hidden', !on);
+  if (!on) updateExtractBtn(); // restaurar estado correto
 }
+
+// ── Clear Output ───────────────────────────────────────────
+function clearOutput() {
+  outputText.value = '';
+  outputText.style.display = 'none';
+  emptyState.style.display = '';
+  stats.textContent = '';
+  clearOutputBtn.style.display = 'none';
+}
+
+clearOutputBtn.addEventListener('click', () => {
+  clearOutput();
+  showToast('Resultado limpo');
+});
 
 // ── Copy ───────────────────────────────────────────────────
 copyBtn.addEventListener('click', () => {
@@ -523,5 +630,6 @@ downloadBtn.addEventListener('click', () => {
   showToast('Ficheiro descarregado!', 'accent');
 });
 
-// ── Inicialização ──────────────────────────────────────────
+// ── Init ───────────────────────────────────────────────────
+clearOutput();
 runDiagnosis();
