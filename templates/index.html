@@ -19,7 +19,7 @@
       <span class="logo-text">Leitura<strong>OCR</strong></span>
     </div>
     <div class="header-right">
-      <nav class="nav-tag">Reconhecimento de Texto · v1.0</nav>
+      <nav class="nav-tag">Reconhecimento de Texto · v1.1</nav>
       <button class="theme-toggle" id="themeToggle" title="Alternar tema">
         <span class="theme-icon dark-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -111,7 +111,28 @@
           <button class="btn-cam-ctrl secondary hidden" id="btnRetake">
             ↺ Nova Foto
           </button>
+
+          <!-- Botão Flash -->
+          <button class="btn-cam-ctrl btn-flash hidden" id="btnFlash" title="Activar flash">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            <span class="flash-label">Flash</span>
+          </button>
         </div>
+      </div>
+
+      <!-- Opções OCR -->
+      <div class="ocr-options">
+        <label class="toggle-option" title="Optimiza o OCR para texto manuscrito e caligrafia">
+          <input type="checkbox" id="handwritingToggle" />
+          <span class="toggle-switch"></span>
+          <span class="toggle-label">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            Modo Caligrafia
+          </span>
+          <span class="toggle-hint">Optimizado para texto manuscrito</span>
+        </label>
       </div>
 
       <!-- Extract Button (fora das tabs, sempre visível) -->
