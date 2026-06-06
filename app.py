@@ -8,7 +8,7 @@ from PIL import Image, ImageEnhance, ImageFilter
 
 app = Flask(__name__)
 CORS(app)
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max (aumentado)
+app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'tiff', 'tif'}
 
@@ -17,15 +17,12 @@ TESSERACT_AVAILABLE = False
 try:
     import pytesseract
 
-    # No Windows, o pytesseract não encontra o executável automaticamente.
-    # Definir o caminho explicitamente se estiver no Windows.
     if os.name == 'nt':
         import glob
         candidates = [
             r'C:\Program Files\Tesseract-OCR\tesseract.exe',
             r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
         ]
-        # Tentar também via glob em caso de versão diferente
         candidates += glob.glob(r'C:\Users\*\AppData\Local\Tesseract-OCR\tesseract.exe')
         candidates += glob.glob(r'C:\tesseract\tesseract.exe')
 
@@ -46,52 +43,68 @@ except Exception as e:
     print(f"⚠️  Tesseract não encontrado: {e}")
     if os.name == 'nt':
         print("   → Windows: instale em https://github.com/UB-Mannheim/tesseract/wiki")
-        print("   → Ou defina o caminho manualmente no app.py:")
-        print("   pytesseract.pytesseract.tesseract_cmd = r'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'")
     else:
         print("   → Linux: sudo apt install tesseract-ocr tesseract-ocr-por")
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def preprocess_image(img):
+def preprocess_image(img, handwriting=False):
     """Melhorar imagem para maior precisão OCR."""
-    # Converter para RGB se necessário
     if img.mode not in ('RGB', 'L'):
         img = img.convert('RGB')
-    
+
     w, h = img.size
-    
-    # Verificar se a imagem tem dimensões válidas
+
     if w == 0 or h == 0:
         raise ValueError("Imagem com dimensões inválidas (largura ou altura = 0)")
-    
-    # Redimensionar apenas se muito pequena
-    if w < 800 or h < 800:
-        scale = max(800 / w, 800 / h)
-        new_w = min(int(w * scale), 4000)
-        new_h = min(int(h * scale), 4000)
-        img = img.resize((new_w, new_h), Image.LANCZOS)
-    
-    # Melhorar nitidez e contraste
-    img = ImageEnhance.Sharpness(img).enhance(2.0)
-    img = ImageEnhance.Contrast(img).enhance(1.5)
-    
+
+    if handwriting:
+        # Para caligrafia: resolução mais alta e pré-processamento suave
+        if w < 1200 or h < 1200:
+            scale = max(1200 / w, 1200 / h)
+            new_w = min(int(w * scale), 6000)
+            new_h = min(int(h * scale), 6000)
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+        # Contraste moderado — evitar degradar letras manuscritas
+        img = ImageEnhance.Contrast(img).enhance(1.3)
+        img = ImageEnhance.Sharpness(img).enhance(1.5)
+    else:
+        # Para texto impresso: processamento padrão
+        if w < 800 or h < 800:
+            scale = max(800 / w, 800 / h)
+            new_w = min(int(w * scale), 4000)
+            new_h = min(int(h * scale), 4000)
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+        img = ImageEnhance.Sharpness(img).enhance(2.0)
+        img = ImageEnhance.Contrast(img).enhance(1.5)
+
     return img
 
-def extract_text_tesseract(img, lang='por+eng'):
+def extract_text_tesseract(img, lang='por+eng', handwriting=False):
     """Extrair texto via Tesseract com múltiplas configs."""
     if not TESSERACT_AVAILABLE:
         raise RuntimeError("Tesseract não está instalado neste sistema.")
-    
-    preprocessed = preprocess_image(img)
-    
-    configs = [
-        f'--oem 3 --psm 3 -l {lang}',
-        f'--oem 3 --psm 6 -l {lang}',
-        f'--oem 3 --psm 11 -l {lang}',
-    ]
-    
+
+    preprocessed = preprocess_image(img, handwriting=handwriting)
+
+    if handwriting:
+        # Para caligrafia: usar OEM 1 (LSTM puro) que é melhor para manuscrito,
+        # e PSM 6 (bloco de texto uniforme) ou PSM 4 (coluna de texto variável).
+        # Também tentar PSM 11 (texto disperso) para notas soltas.
+        configs = [
+            f'--oem 1 --psm 6 -l {lang}',
+            f'--oem 1 --psm 4 -l {lang}',
+            f'--oem 1 --psm 11 -l {lang}',
+            f'--oem 3 --psm 6 -l {lang}',  # fallback com OEM 3
+        ]
+    else:
+        configs = [
+            f'--oem 3 --psm 3 -l {lang}',
+            f'--oem 3 --psm 6 -l {lang}',
+            f'--oem 3 --psm 11 -l {lang}',
+        ]
+
     best_text = ""
     for cfg in configs:
         try:
@@ -101,7 +114,7 @@ def extract_text_tesseract(img, lang='por+eng'):
         except Exception as e:
             print(f"Config {cfg} falhou: {e}")
             continue
-    
+
     return best_text.strip()
 
 def image_to_base64_str(img, fmt='JPEG'):
@@ -116,7 +129,7 @@ def open_image_safe(data: bytes) -> Image.Image:
     """Abrir imagem a partir de bytes com tratamento de erros."""
     try:
         img = Image.open(io.BytesIO(data))
-        img.load()  # Forçar leitura completa
+        img.load()
         return img
     except Exception as e:
         raise ValueError(f"Não foi possível abrir a imagem: {e}")
@@ -136,6 +149,7 @@ def diagnose():
         'is_https': request.is_secure,
         'host': request.host,
         'protocol': request.scheme,
+        'handwriting_support': TESSERACT_AVAILABLE,  # disponível se tesseract estiver instalado
     }
     if TESSERACT_AVAILABLE:
         try:
@@ -153,6 +167,7 @@ def extract():
     try:
         img = None
         source = None
+        handwriting = False  # modo caligrafia
 
         # ── 1. JSON com imagem base64 (câmara ou base64 directo) ──
         if request.is_json:
@@ -161,7 +176,6 @@ def extract():
                 img_data = data['image']
                 if not img_data:
                     return jsonify({'error': 'Campo "image" está vazio'}), 400
-                # Remover cabeçalho data URL se presente
                 if ',' in img_data:
                     img_data = img_data.split(',', 1)[1]
                 try:
@@ -170,6 +184,8 @@ def extract():
                     source = 'base64'
                 except Exception as e:
                     return jsonify({'error': f'Base64 inválido: {e}'}), 400
+                # Flag de caligrafia via JSON
+                handwriting = bool(data.get('handwriting', False))
             else:
                 return jsonify({'error': 'JSON recebido mas sem campo "image"'}), 400
 
@@ -190,6 +206,8 @@ def extract():
                 source = 'file'
             except Exception as e:
                 return jsonify({'error': f'Erro a ler ficheiro: {e}'}), 400
+            # Flag de caligrafia via form field
+            handwriting = request.form.get('handwriting', '0') in ('1', 'true', 'True')
 
         # ── 3. Raw bytes (content-type image/*) ──
         elif request.content_type and request.content_type.startswith('image/'):
@@ -210,7 +228,6 @@ def extract():
 
         # ── OCR ──
         if not TESSERACT_AVAILABLE:
-            # Devolver mensagem clara se tesseract não estiver instalado
             return jsonify({
                 'success': False,
                 'error': 'Tesseract OCR não está instalado neste servidor.',
@@ -226,11 +243,11 @@ def extract():
         text = ""
         lang_used = ""
         try:
-            text = extract_text_tesseract(img, lang='por+eng')
+            text = extract_text_tesseract(img, lang='por+eng', handwriting=handwriting)
             lang_used = 'por+eng'
         except Exception as e1:
             try:
-                text = extract_text_tesseract(img, lang='eng')
+                text = extract_text_tesseract(img, lang='eng', handwriting=handwriting)
                 lang_used = 'eng'
             except Exception as e2:
                 return jsonify({'error': f'Falha OCR: {e2}'}), 500
@@ -241,6 +258,7 @@ def extract():
                 'text': '',
                 'message': 'Nenhum texto detetado. Tente com uma imagem mais nítida ou com mais contraste.',
                 'lang_used': lang_used,
+                'handwriting_mode': handwriting,
                 'image_info': {'size': img.size, 'mode': img.mode},
             })
 
@@ -250,6 +268,7 @@ def extract():
             'char_count': len(text),
             'word_count': len(text.split()),
             'lang_used': lang_used,
+            'handwriting_mode': handwriting,
         })
 
     except Exception as e:
