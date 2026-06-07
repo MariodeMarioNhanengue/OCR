@@ -7,6 +7,210 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    /* ── AI Enhancement Panel ─────────────────────────────── */
+    .ai-panel {
+      background: linear-gradient(135deg, rgba(83,74,183,0.10) 0%, rgba(30,30,60,0.04) 100%);
+      border: 1px solid rgba(139,120,255,0.22);
+      border-radius: 14px;
+      padding: 18px 20px 16px;
+      margin-top: 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    [data-theme="light"] .ai-panel {
+      background: linear-gradient(135deg, rgba(100,80,255,0.06) 0%, rgba(200,195,255,0.08) 100%);
+      border-color: rgba(100,80,255,0.18);
+    }
+    .ai-panel::before {
+      content: '';
+      position: absolute;
+      top: -20px; right: -20px;
+      width: 100px; height: 100px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(130,100,255,0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .ai-panel-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .ai-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(130,100,255,0.18);
+      color: #b5a0ff;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 20px;
+      border: 1px solid rgba(130,100,255,0.30);
+    }
+    [data-theme="light"] .ai-badge {
+      background: rgba(100,80,255,0.10);
+      color: #5340c8;
+      border-color: rgba(100,80,255,0.25);
+    }
+    .ai-badge svg { flex-shrink: 0; }
+    .ai-panel-title {
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text-primary, #f0eeff);
+      margin: 0;
+    }
+    [data-theme="light"] .ai-panel-title { color: #1a1040; }
+
+    .ai-modes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .ai-mode-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 13px;
+      border-radius: 8px;
+      border: 1px solid rgba(130,100,255,0.20);
+      background: rgba(255,255,255,0.04);
+      color: rgba(200,190,255,0.75);
+      font-size: 13px;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .ai-mode-btn:hover { background: rgba(130,100,255,0.12); border-color: rgba(130,100,255,0.40); color: #c8baff; }
+    .ai-mode-btn.active { background: rgba(130,100,255,0.22); border-color: rgba(180,150,255,0.50); color: #e0d8ff; font-weight: 500; }
+    [data-theme="light"] .ai-mode-btn { background: rgba(100,80,255,0.04); border-color: rgba(100,80,255,0.15); color: #6050b0; }
+    [data-theme="light"] .ai-mode-btn:hover { background: rgba(100,80,255,0.10); color: #4030a0; }
+    [data-theme="light"] .ai-mode-btn.active { background: rgba(100,80,255,0.15); border-color: rgba(100,80,255,0.40); color: #2818a0; }
+
+    .ai-action-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .btn-ai {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 11px 18px;
+      background: linear-gradient(135deg, #6a50e8, #8862f5);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-family: 'Syne', sans-serif;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      box-shadow: 0 4px 18px rgba(106,80,232,0.35);
+    }
+    .btn-ai:hover { background: linear-gradient(135deg, #7a60f8, #9872ff); box-shadow: 0 6px 24px rgba(106,80,232,0.50); transform: translateY(-1px); }
+    .btn-ai:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-ai:active { transform: translateY(0); }
+
+    .ai-status {
+      font-size: 12px;
+      color: rgba(200,190,255,0.55);
+      font-style: italic;
+      text-align: center;
+      min-height: 16px;
+      margin-top: 8px;
+    }
+    [data-theme="light"] .ai-status { color: rgba(80,60,180,0.55); }
+
+    /* ── Download Panel ───────────────────────────────────── */
+    .download-panel {
+      display: flex;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .btn-download {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 10px 14px;
+      border-radius: 9px;
+      border: 1px solid;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-download-txt {
+      background: rgba(30, 180, 120, 0.08);
+      border-color: rgba(30, 180, 120, 0.25);
+      color: #50d4a0;
+    }
+    .btn-download-txt:hover {
+      background: rgba(30, 180, 120, 0.16);
+      border-color: rgba(30, 180, 120, 0.45);
+      color: #70e8b8;
+    }
+    .btn-download-pdf {
+      background: rgba(220, 80, 60, 0.08);
+      border-color: rgba(220, 80, 60, 0.22);
+      color: #f08070;
+    }
+    .btn-download-pdf:hover {
+      background: rgba(220, 80, 60, 0.16);
+      border-color: rgba(220, 80, 60, 0.40);
+      color: #f89080;
+    }
+    [data-theme="light"] .btn-download-txt { background: rgba(0,160,100,0.06); border-color: rgba(0,160,100,0.22); color: #00805a; }
+    [data-theme="light"] .btn-download-txt:hover { background: rgba(0,160,100,0.12); color: #006a4a; }
+    [data-theme="light"] .btn-download-pdf { background: rgba(200,60,40,0.06); border-color: rgba(200,60,40,0.20); color: #b03020; }
+    [data-theme="light"] .btn-download-pdf:hover { background: rgba(200,60,40,0.12); color: #902010; }
+    .btn-download:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* ── AI Spinner ─────────────────────────────────────────── */
+    .ai-spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    .ai-spinner.running { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Restored text toggle ───────────────────────────────── */
+    .restore-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: rgba(200,190,255,0.50);
+    }
+    [data-theme="light"] .restore-row { color: rgba(80,60,180,0.50); }
+    .btn-restore {
+      background: none;
+      border: none;
+      color: #9a80f0;
+      font-size: 12px;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0;
+    }
+    [data-theme="light"] .btn-restore { color: #5040c0; }
+    .btn-restore:hover { color: #c0a8ff; }
+    [data-theme="light"] .btn-restore:hover { color: #3020a0; }
+  </style>
 </head>
 <body>
 
@@ -19,7 +223,7 @@
       <span class="logo-text">Leitura<strong>OCR</strong></span>
     </div>
     <div class="header-right">
-      <nav class="nav-tag">Reconhecimento de Texto · v1.2</nav>
+      <nav class="nav-tag">Reconhecimento de Texto com IA · v2.0</nav>
       <button class="theme-toggle" id="themeToggle" title="Alternar tema">
         <span class="theme-icon dark-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
@@ -34,8 +238,8 @@
 
   <main>
     <section class="hero">
-      <h1>Transforme imagens<br><em>em texto</em></h1>
-      <p class="hero-sub">Faça upload, use a câmara ou envie um PDF — o motor OCR extrai o texto em segundos.</p>
+      <h1>Transforme imagens<br><em>em texto inteligente</em></h1>
+      <p class="hero-sub">OCR + Inteligência Artificial: extraia, corrija e melhore texto automaticamente. Faça download em TXT ou PDF.</p>
     </section>
 
     <!-- Input Panel -->
@@ -83,7 +287,7 @@
           <div class="cam-placeholder" id="camPlaceholder">
             <svg width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             <p class="cam-placeholder-title">Acesso à Câmara</p>
-            <p class="cam-placeholder-sub">Clique no botão para activar a câmara do seu dispositivo. O browser pedirá permissão.</p>
+            <p class="cam-placeholder-sub">Clique no botão para activar a câmara do seu dispositivo.</p>
             <button class="btn-cam-activate" id="btnActivate">Activar Câmara</button>
             <p class="cam-https-note" id="camHttpsNote" style="display:none"></p>
           </div>
@@ -159,22 +363,18 @@
     <section class="panel output-panel" id="outputPanel">
       <div class="output-header">
         <h2 class="output-title">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
           Texto Extraído
         </h2>
         <div class="output-actions">
           <span class="stats" id="stats"></span>
           <button class="btn-icon" id="clearOutputBtn" title="Limpar resultado" style="display:none">
-            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
             Limpar
           </button>
           <button class="btn-icon" id="copyBtn" title="Copiar texto">
             <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             Copiar
-          </button>
-          <button class="btn-icon" id="downloadBtn" title="Descarregar .txt">
-            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Descarregar
           </button>
         </div>
       </div>
@@ -185,14 +385,250 @@
         </div>
         <textarea id="outputText" placeholder="O texto extraído aparecerá aqui..." spellcheck="false"></textarea>
       </div>
+
+      <!-- AI Enhancement Panel -->
+      <div class="ai-panel" id="aiPanel" style="display:none">
+        <div class="ai-panel-header">
+          <span class="ai-badge">
+            <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Inteligência Artificial
+          </span>
+          <p class="ai-panel-title">Melhorar com IA</p>
+        </div>
+
+        <div class="ai-modes">
+          <button class="ai-mode-btn active" data-mode="correct">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Corrigir OCR
+          </button>
+          <button class="ai-mode-btn" data-mode="clean">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h12"/></svg>
+            Limpar Texto
+          </button>
+          <button class="ai-mode-btn" data-mode="structure">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Estruturar
+          </button>
+          <button class="ai-mode-btn" data-mode="summarize">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Resumir
+          </button>
+          <button class="ai-mode-btn" data-mode="translate">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/></svg>
+            Traduzir (EN)
+          </button>
+        </div>
+
+        <div class="ai-action-row">
+          <button class="btn-ai" id="btnAiEnhance" disabled>
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span id="aiEnhanceLabel">Aplicar IA</span>
+            <div class="ai-spinner" id="aiSpinner"></div>
+          </button>
+        </div>
+
+        <p class="ai-status" id="aiStatus"></p>
+
+        <div class="restore-row" id="restoreRow" style="display:none">
+          <span>Texto original guardado.</span>
+          <button class="btn-restore" id="btnRestore">↩ Restaurar original</button>
+        </div>
+      </div>
+
+      <!-- Download Panel -->
+      <div class="download-panel" id="downloadPanel" style="display:none">
+        <button class="btn-download btn-download-txt" id="btnDownloadTxt" disabled>
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Descarregar TXT
+        </button>
+        <button class="btn-download btn-download-pdf" id="btnDownloadPdf" disabled>
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Descarregar PDF
+        </button>
+      </div>
     </section>
   </main>
 
   <footer>
-    <p>Alimentado por <strong>Tesseract OCR</strong> · Backend <strong>Python / Flask</strong></p>
+    <p>Alimentado por <strong>Tesseract OCR</strong> + <strong>Claude AI</strong> · Backend <strong>Python / Flask</strong></p>
   </footer>
 
   <div class="toast" id="toast"></div>
   <script src="/static/app.js"></script>
+  <script>
+  // ── AI Enhancement + Download (extensão ao app.js original) ──────────
+
+  const aiPanel      = document.getElementById('aiPanel');
+  const downloadPanel = document.getElementById('downloadPanel');
+  const btnAiEnhance = document.getElementById('btnAiEnhance');
+  const aiEnhanceLabel = document.getElementById('aiEnhanceLabel');
+  const aiSpinner    = document.getElementById('aiSpinner');
+  const aiStatus     = document.getElementById('aiStatus');
+  const restoreRow   = document.getElementById('restoreRow');
+  const btnRestore   = document.getElementById('btnRestore');
+  const btnDownloadTxt = document.getElementById('btnDownloadTxt');
+  const btnDownloadPdf = document.getElementById('btnDownloadPdf');
+  const outputTextEl = document.getElementById('outputText');
+
+  let selectedAiMode = 'correct';
+  let originalOcrText = null;
+  let diagInfo2 = null;
+
+  // ── Modo AI activo ────────────────────────────────────────────────────
+  document.querySelectorAll('.ai-mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.ai-mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedAiMode = btn.dataset.mode;
+    });
+  });
+
+  // ── Mostrar painéis quando há texto ──────────────────────────────────
+  function showExtraPanels(hasText) {
+    if (hasText) {
+      aiPanel.style.display = 'block';
+      downloadPanel.style.display = 'flex';
+      btnAiEnhance.disabled = false;
+      btnDownloadTxt.disabled = false;
+      btnDownloadPdf.disabled = false;
+    } else {
+      aiPanel.style.display = 'none';
+      downloadPanel.style.display = 'none';
+    }
+  }
+
+  // Observar mudanças no outputText (via MutationObserver no valor)
+  // O app.js original escreve directamente em outputText.value
+  // Usamos polling leve:
+  let lastVal = '';
+  setInterval(() => {
+    const val = outputTextEl ? outputTextEl.value : '';
+    if (val !== lastVal) {
+      lastVal = val;
+      showExtraPanels(val.trim().length > 0);
+      if (val.trim().length === 0) {
+        originalOcrText = null;
+        restoreRow.style.display = 'none';
+        aiStatus.textContent = '';
+      }
+    }
+  }, 300);
+
+  // ── Botão IA ──────────────────────────────────────────────────────────
+  btnAiEnhance.addEventListener('click', async () => {
+    const text = outputTextEl.value.trim();
+    if (!text) return;
+
+    // Guardar original
+    if (originalOcrText === null) {
+      originalOcrText = text;
+    }
+
+    btnAiEnhance.disabled = true;
+    aiEnhanceLabel.textContent = 'A processar…';
+    aiSpinner.classList.add('running');
+    aiStatus.textContent = 'A enviar para a IA Claude…';
+
+    try {
+      const res = await fetch('/api/ai-enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, mode: selectedAiMode })
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        aiStatus.textContent = '❌ ' + data.error;
+        return;
+      }
+
+      outputTextEl.value = data.text;
+      lastVal = data.text;
+
+      const modeLabels = {
+        correct: 'Erros corrigidos pela IA',
+        clean: 'Texto limpo pela IA',
+        structure: 'Texto estruturado pela IA',
+        summarize: 'Resumo gerado pela IA',
+        translate: 'Texto traduzido pela IA',
+      };
+      aiStatus.textContent = '✅ ' + (modeLabels[selectedAiMode] || 'Processado pela IA');
+
+      // Actualizar stats (se existir função do app.js)
+      if (typeof updateStats === 'function') updateStats(data.text);
+
+      // Mostrar botão restaurar
+      restoreRow.style.display = 'flex';
+
+    } catch (e) {
+      aiStatus.textContent = '❌ Erro de rede: ' + e.message;
+    } finally {
+      btnAiEnhance.disabled = false;
+      aiEnhanceLabel.textContent = 'Aplicar IA';
+      aiSpinner.classList.remove('running');
+    }
+  });
+
+  // ── Restaurar original ────────────────────────────────────────────────
+  btnRestore.addEventListener('click', () => {
+    if (originalOcrText !== null) {
+      outputTextEl.value = originalOcrText;
+      lastVal = originalOcrText;
+      restoreRow.style.display = 'none';
+      aiStatus.textContent = '↩ Texto original restaurado.';
+      originalOcrText = null;
+    }
+  });
+
+  // ── Download TXT ──────────────────────────────────────────────────────
+  btnDownloadTxt.addEventListener('click', () => {
+    const text = outputTextEl.value;
+    if (!text.trim()) return;
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'texto_extraido.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // ── Download PDF ──────────────────────────────────────────────────────
+  btnDownloadPdf.addEventListener('click', async () => {
+    const text = outputTextEl.value;
+    if (!text.trim()) return;
+
+    btnDownloadPdf.disabled = true;
+    btnDownloadPdf.textContent = '⏳ A gerar…';
+
+    try {
+      const res = await fetch('/api/download-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, title: 'Texto Extraído OCR' })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert('Erro ao gerar PDF: ' + (err.error || res.statusText));
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'texto_extraido.pdf';
+      a.click();
+      URL.revokeObjectURL(url);
+
+    } catch (e) {
+      alert('Erro: ' + e.message);
+    } finally {
+      btnDownloadPdf.disabled = false;
+      btnDownloadPdf.innerHTML = `<svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Descarregar PDF`;
+    }
+  });
+  </script>
 </body>
 </html>

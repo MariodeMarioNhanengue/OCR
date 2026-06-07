@@ -3,7 +3,8 @@ import base64
 import io
 import sys
 import glob
-from flask import Flask, request, jsonify, render_template
+import json
+from flask import Flask, request, jsonify, render_template, send_file
 from flask_cors import CORS
 from PIL import Image, ImageEnhance
 
@@ -18,17 +19,14 @@ TESSERACT_AVAILABLE = False
 TESSERACT_PATH = None
 
 def find_tesseract_windows():
-    """Procura o executável do Tesseract em locais comuns no Windows."""
     candidates = [
         r'C:\Program Files\Tesseract-OCR\tesseract.exe',
         r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
         r'C:\Tesseract-OCR\tesseract.exe',
         r'C:\tesseract\tesseract.exe',
     ]
-    # Procurar em AppData de qualquer utilizador
     candidates += glob.glob(r'C:\Users\*\AppData\Local\Tesseract-OCR\tesseract.exe')
     candidates += glob.glob(r'C:\Users\*\AppData\Local\Programs\Tesseract-OCR\tesseract.exe')
-
     for path in candidates:
         if os.path.isfile(path):
             return path
@@ -36,66 +34,35 @@ def find_tesseract_windows():
 
 try:
     import pytesseract
-
     if os.name == 'nt':
-        # Primeiro tenta encontrar automaticamente
         found = find_tesseract_windows()
         if found:
             pytesseract.pytesseract.tesseract_cmd = found
             TESSERACT_PATH = found
-            print(f"✅ Tesseract encontrado: {found}")
-        else:
-            # Tenta pelo PATH do sistema (caso o utilizador tenha adicionado)
-            import shutil
-            if shutil.which('tesseract'):
-                print("✅ Tesseract encontrado no PATH do sistema")
-            else:
-                print("⚠️  Tesseract não encontrado automaticamente.")
-                print("   Instale em: https://github.com/UB-Mannheim/tesseract/wiki")
-                print("   Ou defina a variável TESSERACT_CMD no ambiente:")
-                print("   set TESSERACT_CMD=C:\\Program Files\\Tesseract-OCR\\tesseract.exe")
-
-        # Suporte a TESSERACT_CMD via variável de ambiente (override manual)
         env_cmd = os.environ.get('TESSERACT_CMD')
         if env_cmd and os.path.isfile(env_cmd):
             pytesseract.pytesseract.tesseract_cmd = env_cmd
             TESSERACT_PATH = env_cmd
-            print(f"✅ Tesseract via TESSERACT_CMD: {env_cmd}")
-
     pytesseract.get_tesseract_version()
     TESSERACT_AVAILABLE = True
     print("✅ Tesseract OCR pronto")
-
 except Exception as e:
     print(f"⚠️  Tesseract não disponível: {e}")
-    if os.name == 'nt':
-        print("   → Instale em: https://github.com/UB-Mannheim/tesseract/wiki")
-        print("   → Marque 'Add to PATH' durante a instalação")
-    else:
-        print("   → sudo apt install tesseract-ocr tesseract-ocr-por")
 
 # ── pdf2image / Poppler setup ────────────────────────────────
 PDF_AVAILABLE = False
 POPPLER_PATH = None
 
 def find_poppler_windows():
-    """Procura binários do Poppler em locais comuns no Windows."""
     candidates = [
-        r'C:\poppler\Library\bin',
-        r'C:\poppler\bin',
-        r'C:\Program Files\poppler\Library\bin',
-        r'C:\Program Files\poppler\bin',
-        r'C:\Program Files (x86)\poppler\bin',
-        r'C:\tools\poppler\Library\bin',
+        r'C:\poppler\Library\bin', r'C:\poppler\bin',
+        r'C:\Program Files\poppler\Library\bin', r'C:\Program Files\poppler\bin',
     ]
     candidates += glob.glob(r'C:\Users\*\poppler*\Library\bin')
     candidates += glob.glob(r'C:\poppler*\Library\bin')
-    candidates += glob.glob(r'C:\poppler*\bin')
-    # Procurar em PATH
     import shutil
     if shutil.which('pdftoppm'):
-        return None  # já está no PATH, pdf2image encontra sozinho
-
+        return None
     for path in candidates:
         if os.path.isdir(path) and os.path.isfile(os.path.join(path, 'pdftoppm.exe')):
             return path
@@ -103,29 +70,19 @@ def find_poppler_windows():
 
 try:
     from pdf2image import convert_from_bytes
-
     poppler_path = None
     if os.name == 'nt':
         poppler_path = find_poppler_windows()
         if poppler_path:
             POPPLER_PATH = poppler_path
-            print(f"✅ Poppler encontrado: {poppler_path}")
         else:
             import shutil
-            if shutil.which('pdftoppm'):
-                print("✅ Poppler encontrado no PATH do sistema")
-            else:
-                print("⚠️  Poppler não encontrado. PDFs não serão suportados.")
-                print("   Descarregue em: https://github.com/oschwartz10612/poppler-windows/releases")
-                print("   Extraia e coloque em C:\\poppler\\")
+            if not shutil.which('pdftoppm'):
                 raise RuntimeError("Poppler não encontrado")
-
-    # Teste rápido
     convert_from_bytes(b'%PDF', poppler_path=poppler_path if os.name == 'nt' else None)
 except RuntimeError as e:
     print(f"⚠️  PDF desactivado: {e}")
 except Exception:
-    # O teste falhou por PDF inválido mas a biblioteca está presente
     from pdf2image import convert_from_bytes
     PDF_AVAILABLE = True
     print("✅ pdf2image disponível")
@@ -134,9 +91,20 @@ if not PDF_AVAILABLE:
     try:
         from pdf2image import convert_from_bytes
         PDF_AVAILABLE = True
-        print("✅ pdf2image disponível (suporte a PDF activo)")
     except ImportError:
-        print("⚠️  pdf2image não instalado: pip install pdf2image")
+        pass
+
+# ── fpdf2 para geração de PDF ────────────────────────────────
+PDF_GEN_AVAILABLE = False
+try:
+    from fpdf import FPDF
+    PDF_GEN_AVAILABLE = True
+    print("✅ fpdf2 disponível (download PDF activo)")
+except ImportError:
+    print("⚠️  fpdf2 não instalado: pip install fpdf2")
+
+# ── Anthropic (IA) ───────────────────────────────────────────
+ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
 
 def allowed_file(filename):
@@ -148,7 +116,6 @@ def preprocess_image(img, handwriting=False):
     w, h = img.size
     if w == 0 or h == 0:
         raise ValueError("Imagem com dimensões inválidas")
-
     if handwriting:
         if w < 1200 or h < 1200:
             scale = max(1200 / w, 1200 / h)
@@ -167,7 +134,6 @@ def extract_text_tesseract(img, lang='por+eng', handwriting=False):
     if not TESSERACT_AVAILABLE:
         raise RuntimeError("Tesseract não está instalado.")
     preprocessed = preprocess_image(img, handwriting=handwriting)
-
     configs = (
         [f'--oem 1 --psm 6 -l {lang}', f'--oem 1 --psm 4 -l {lang}',
          f'--oem 1 --psm 11 -l {lang}', f'--oem 3 --psm 6 -l {lang}']
@@ -175,7 +141,6 @@ def extract_text_tesseract(img, lang='por+eng', handwriting=False):
         [f'--oem 3 --psm 3 -l {lang}', f'--oem 3 --psm 6 -l {lang}',
          f'--oem 3 --psm 11 -l {lang}']
     )
-
     best_text = ""
     for cfg in configs:
         try:
@@ -195,7 +160,6 @@ def open_image_safe(data: bytes) -> Image.Image:
         raise ValueError(f"Não foi possível abrir a imagem: {e}")
 
 def ocr_image(img, handwriting=False):
-    """Executar OCR numa imagem PIL. Devolve (text, lang_used)."""
     try:
         return extract_text_tesseract(img, lang='por+eng', handwriting=handwriting), 'por+eng'
     except Exception:
@@ -205,7 +169,6 @@ def ocr_image(img, handwriting=False):
             raise RuntimeError(f"Falha OCR: {e2}")
 
 def pdf_to_images(file_bytes):
-    """Converter PDF em lista de imagens PIL."""
     kwargs = {'dpi': 200}
     if os.name == 'nt' and POPPLER_PATH:
         kwargs['poppler_path'] = POPPLER_PATH
@@ -223,6 +186,7 @@ def diagnose():
         'tesseract': TESSERACT_AVAILABLE,
         'tesseract_path': TESSERACT_PATH,
         'pdf_support': PDF_AVAILABLE,
+        'pdf_gen_support': PDF_GEN_AVAILABLE,
         'poppler_path': POPPLER_PATH,
         'python_version': sys.version,
         'platform': os.name,
@@ -230,6 +194,7 @@ def diagnose():
         'host': request.host,
         'protocol': request.scheme,
         'handwriting_support': TESSERACT_AVAILABLE,
+        'ai_available': bool(ANTHROPIC_KEY),
     }
     if TESSERACT_AVAILABLE:
         try:
@@ -392,6 +357,168 @@ def _process_pdf(file_bytes, handwriting=False):
     })
 
 
+# ── NOVO: Melhorar texto com IA (Claude) ─────────────────────
+@app.route('/api/ai-enhance', methods=['POST'])
+def ai_enhance():
+    """
+    Envia o texto extraído pelo OCR à API Claude para correcção e melhoria.
+    O frontend passa { text, mode } onde mode pode ser:
+      'correct'  — corrigir erros OCR e ortografia
+      'clean'    — limpar e formatar
+      'summarize'— resumir o conteúdo
+      'translate'— traduzir para inglês
+    """
+    import urllib.request
+
+    if not ANTHROPIC_KEY:
+        return jsonify({
+            'error': 'ANTHROPIC_API_KEY não configurada no servidor.',
+            'hint': 'Defina a variável de ambiente ANTHROPIC_API_KEY antes de iniciar o servidor.'
+        }), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    text = (data.get('text') or '').strip()
+    mode = data.get('mode', 'correct')
+
+    if not text:
+        return jsonify({'error': 'Texto vazio'}), 400
+
+    prompts = {
+        'correct': (
+            "Corrija os erros de OCR, ortografia e formatação do seguinte texto. "
+            "Mantenha o conteúdo e idioma originais. Devolva apenas o texto corrigido, sem comentários."
+        ),
+        'clean': (
+            "Limpe e formate o seguinte texto extraído por OCR: remova caracteres estranhos, "
+            "corrija parágrafos quebrados e normalize o espaçamento. Devolva apenas o texto limpo."
+        ),
+        'summarize': (
+            "Crie um resumo conciso do seguinte texto em português. "
+            "Destaque os pontos principais. Devolva apenas o resumo."
+        ),
+        'translate': (
+            "Traduza o seguinte texto para inglês de forma natural e precisa. "
+            "Devolva apenas a tradução, sem comentários."
+        ),
+        'structure': (
+            "Analise e estruture o seguinte texto extraído por OCR em secções lógicas com títulos. "
+            "Corrija erros de OCR. Devolva apenas o texto estruturado em Markdown."
+        ),
+    }
+
+    instruction = prompts.get(mode, prompts['correct'])
+    user_message = f"{instruction}\n\n---\n{text}\n---"
+
+    # Tenta modelos por ordem de preferência
+    models_to_try = [
+        "claude-haiku-4-5-20251001",
+        "claude-haiku-3-5-20241022",
+        "claude-3-haiku-20240307",
+    ]
+
+    last_error = None
+    for model in models_to_try:
+        payload = json.dumps({
+            "model": model,
+            "max_tokens": 4096,
+            "messages": [{"role": "user", "content": user_message}]
+        }).encode('utf-8')
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST"
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                result = json.loads(resp.read().decode('utf-8'))
+                enhanced_text = result['content'][0]['text']
+                return jsonify({
+                    'success': True,
+                    'text': enhanced_text,
+                    'mode': mode,
+                    'model_used': model,
+                    'original_chars': len(text),
+                    'result_chars': len(enhanced_text),
+                })
+        except urllib.error.HTTPError as e:
+            body = e.read().decode('utf-8', errors='replace')
+            last_error = f'Modelo {model} -> HTTP {e.code}: {body}'
+            print(f"aviso: {last_error}")
+            if e.code == 401:
+                return jsonify({'error': 'Chave API invalida ou expirada. Verifique ANTHROPIC_API_KEY.', 'detail': body}), 401
+            continue
+        except Exception as e:
+            last_error = str(e)
+            print(f"Erro com modelo {model}: {e}")
+            continue
+
+    return jsonify({'error': f'Todos os modelos falharam. Ultimo erro: {last_error}'}), 502
+
+
+# ── NOVO: Download como PDF ───────────────────────────────────
+@app.route('/api/download-pdf', methods=['POST'])
+def download_pdf():
+    """Gera um PDF a partir do texto e devolve-o para download."""
+    if not PDF_GEN_AVAILABLE:
+        return jsonify({
+            'error': 'fpdf2 não instalado.',
+            'hint': 'pip install fpdf2'
+        }), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    text = (data.get('text') or '').strip()
+    title = (data.get('title') or 'Texto Extraído OCR').strip()
+
+    if not text:
+        return jsonify({'error': 'Texto vazio'}), 400
+
+    try:
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+
+        # Título
+        pdf.set_font('Helvetica', 'B', 16)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 10, title.encode('latin-1', 'replace').decode('latin-1'), ln=True)
+        pdf.ln(4)
+
+        # Linha separadora
+        pdf.set_draw_color(180, 180, 180)
+        pdf.line(pdf.get_x(), pdf.get_y(), pdf.get_x() + 190, pdf.get_y())
+        pdf.ln(6)
+
+        # Corpo do texto
+        pdf.set_font('Helvetica', '', 11)
+        pdf.set_text_color(50, 50, 50)
+
+        for line in text.split('\n'):
+            safe_line = line.encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 6, safe_line)
+
+        pdf_bytes = pdf.output()
+        buf = io.BytesIO(bytes(pdf_bytes))
+        buf.seek(0)
+
+        return send_file(
+            buf,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name='texto_extraido.pdf'
+        )
+
+    except Exception as e:
+        import traceback
+        return jsonify({'error': f'Erro ao gerar PDF: {e}', 'detail': traceback.format_exc()}), 500
+
+
 if __name__ == '__main__':
     ssl_cert, ssl_key = 'cert.pem', 'key.pem'
 
@@ -407,9 +534,8 @@ if __name__ == '__main__':
     ssl_context = (ssl_cert, ssl_key) if ssl_cert else None
 
     if ssl_context:
-        print("✅ A iniciar em HTTPS")
-        print("   https://localhost:5000")
+        print("✅ A iniciar em HTTPS — https://localhost:5000")
     else:
-        print("⚠️  A iniciar em HTTP (câmara bloqueada pelo browser)")
+        print("⚠️  A iniciar em HTTP")
 
     app.run(debug=True, host='0.0.0.0', port=5000, ssl_context=ssl_context)
